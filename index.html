@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>eyefrog — word shots + simple tongue logger</title>
+<title>eyefrog — locked mouth + tip-anchored words</title>
 <style>
   html,body{height:100%}
   body{
@@ -28,7 +28,7 @@
 </div>
 <div id="hud">
   G guide • L log config • P pause • +/- speed<br/>
-  Mouth is locked (edit LOCK_MOUTH to move). Tongue: T log coords • WASD move • &lt; &gt; thickness • ; ' angle • 0 word-angles
+  Mouth is locked (edit LOCK_MOUTH to move). Tongue: T lock/unlock • WASD move • &lt; &gt; thickness • ; ' angle • 0 auto-aim
 </div>
 
 <script>
@@ -273,35 +273,34 @@ const ART = `
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                                                                                                                                                                
+                                                                                                                                                                                                                                                                                                                                                                                        
 `.trimEnd();
 
-/* ===== 2) Mouth configuration ===== */
+/* ===== 2) Mouth + targets configuration ===== */
 let MOUTH_ROW = 44;
 let MOUTH_COL = 70;
 let MOUTH_W   = 252;
 let MOUTH_H   = 12;
 let MOUTH_ROT_DEG = -16;
 
-/* ===== Word-driven shots =====
-   Sequence cycles through these words & angles. */
-const SHOT_WORDS = [
-  { text: "NOTHING", angle: 10 },
-  { text: "TO",      angle: 16 },
-  { text: "SEE",     angle: 27 },
-  { text: "HERE",    angle: 38 }
-];
+let ANGLE_DEG = 0; // legacy (unused once tongue angle is set)
+
+/* Words per shot */
+const SHOTS   = 4;
+const SHOT_WORDS = ["NOTHING", "TO", "SEE", "HERE"]; // length should match SHOTS
+const SPACING = 7;
+const START_AT_LEFT = true;
 
 /* Mouth lock / guide */
-const LOCK_MOUTH = true;   // lock mouth in place
-let showGuide = false;     // hide guide on load
+const LOCK_MOUTH = true;  // lock mouth in place
+let showGuide = false;    // hide guide on load
 
 /* ===== Tongue configuration (independent of mouth) ===== */
 let TONGUE_ROW = null;        // null = default to mouth center until set
 let TONGUE_COL = null;
-let TONGUE_ANGLE_DEG = 0;     // 0 = use word-driven angle
+let TONGUE_ANGLE_DEG = 0;     // 0 = auto-aim at current target
 let TONGUE_THICK = 3;         // tongue thickness (number of strands)
-let TONGUE_LOCK = false;      // toggled by user (WASD enable/disable)
+let TONGUE_LOCK = false;      // T to toggle lock
 
 /* ===== Console logger ===== */
 function logConfig(){
@@ -310,7 +309,6 @@ function logConfig(){
   console.log("MOUTH_W   =", MOUTH_W);
   console.log("MOUTH_H   =", MOUTH_H);
   console.log("MOUTH_ROT_DEG =", MOUTH_ROT_DEG);
-
   console.log("TONGUE_ROW =", TONGUE_ROW);
   console.log("TONGUE_COL =", TONGUE_COL);
   console.log("TONGUE_THICK =", TONGUE_THICK);
@@ -366,65 +364,69 @@ function carveMouth(srcLines, open01){
   return lines.map(a=>a.join('')).join('\n');
 }
 
-/* ---------- thicker tongue drawing ---------- */
-function drawTongue(len, row0, col0, angleDeg, thick=1){
-  if (len<=0 || thick<=0) return '';
+/* ==================== GRID HELPERS (overlay drawing) ==================== */
+function rowsToString(rows) {
+  const maxR = rows.size ? Math.max(...rows.keys()) : 0;
+  const out = [];
+  for (let r = 0; r <= maxR; r++) {
+    const a = rows.get(r);
+    if (!a) { out.push(''); continue; }
+    a.sort((x,y)=>x[0]-y[0]);
+    let s='', last=-1;
+    for (const [col,ch] of a){
+      if (col>last+1) s += ' '.repeat(col-(last+1));
+      s += ch; last=col;
+    }
+    out[r]=s;
+  }
+  return out.join('\n');
+}
+
+function putChar(rows, r, c, ch){
+  r = Math.round(r); c = Math.max(0, Math.round(c));
+  if (r < 0) return;
+  const a = rows.get(r) || [];
+  a.push([c, ch]);
+  rows.set(r, a);
+}
+
+function putText(rows, r, c, text){
+  const rr = Math.round(r);
+  let cc = Math.max(0, Math.round(c));
+  for (const ch of String(text)) putChar(rows, rr, cc++, ch);
+}
+
+/* ---------- thicker tongue drawing (grid + tip coords) ---------- */
+function drawTongueGrid(len, row0, col0, angleDeg, thick=1){
+  const rows = new Map();
+  if (len<=0 || thick<=0) return { rows, tipR: row0, tipC: col0 };
+
   const rad = angleDeg * Math.PI/180;
   const dx = Math.cos(rad), dy = Math.sin(rad);
-  // perpendicular unit for thickness
   const px = -Math.sin(rad), py = Math.cos(rad);
 
-  const rows = new Map();
-  const put = (r,c,ch)=>{
-    r = Math.round(r); c = Math.max(0, Math.round(c));
-    if (r<0) return; const a = rows.get(r)||[]; a.push([c,ch]); rows.set(r,a);
-  };
-
   const half = Math.floor((thick-1)/2);
-  const offsets = Array.from({length:thick}, (_,i)=> i-half); // e.g. [-1,0,1] for 3
+  const offsets = Array.from({length:thick}, (_,i)=> i-half);
 
   // shaft
   for (let i=0;i<Math.max(0,len-1);i++){
     for (const s of offsets){
       const rr = row0 + dy*i + py*s;
       const cc = col0 + dx*i + px*s;
-      put(rr, cc, SEG);
+      putChar(rows, rr, cc, SEG);
     }
   }
+
   // tip (center strand)
   const tipR = row0 + dy*(len-1);
   const tipC = col0 + dx*(len-1);
-  put(tipR, tipC, TIP);
+  putChar(rows, tipR, tipC, TIP);
 
-  // bake rows → string
-  const maxR = Math.max(...rows.keys(), 0);
-  const out = [];
-  for (let r=0;r<=maxR;r++){
-    const a = rows.get(r); if (!a){ out.push(''); continue; }
-    a.sort((x,y)=>x[0]-y[0]);
-    let s='', last=-1;
-    for (const [col,ch] of a){ if (col>last+1) s+=' '.repeat(col-(last+1)); s+=ch; last=col; }
-    out[r]=s;
-  }
-  return '\n'.repeat(Math.max(0,row0)) + out.join('\n');
+  return { rows, tipR, tipC };
 }
 
-/* ---------- simple word drawer ---------- */
-function drawWord(text, row, col) {
-  const r = Math.max(0, Math.round(row));
-  const c = Math.max(0, Math.round(col));
-  return '\n'.repeat(r) + ' '.repeat(c) + text;
-}
-
-/* ---------- optional rotated-oval guide ---------- */
-function guideOverlay() {
-  if (!showGuide) return '';
-  const rows = new Map();
-  const put = (r,c,ch)=>{
-    r = Math.round(r); c = Math.max(0, Math.round(c));
-    if (r < 0) return; const a = rows.get(r) || []; a.push([c, ch]); rows.set(r, a);
-  };
-
+/* ---------- guide overlay (adds to the same rows grid) ---------- */
+function addGuideToRows(rows, targets) {
   const cx = MOUTH_COL + Math.floor(MOUTH_W/2);
   const cy = MOUTH_ROW + Math.floor(MOUTH_H/2);
   const a  = MOUTH_W/2, b = MOUTH_H/2;
@@ -437,23 +439,12 @@ function guideOverlay() {
       const xr =  dx * cos + dy * sin;
       const yr = -dx * sin + dy * cos;
       const v = (xr * xr) / (a * a) + (yr * yr) / (b * b);
-      if (v > 0.97 && v < 1.03) put(r, c, '·');
+      if (v > 0.97 && v < 1.03) putChar(rows, r, c, '·');
     }
   }
 
-  const maxR = Math.max(...rows.keys(), 0), out = [];
-  for (let r = 0; r <= maxR; r++){
-    const arow = rows.get(r);
-    if (!arow){ out.push(''); continue; }
-    arow.sort((x,y)=>x[0]-y[0]);
-    let s='', last=-1;
-    for (const [col,ch] of arow){
-      if (col>last+1) s += ' '.repeat(col-(last+1));
-      s += ch; last=col;
-    }
-    out[r]=s;
-  }
-  return '\n'.repeat(Math.max(0, Math.min(MOUTH_ROW, out.length ? MOUTH_ROW : 0))) + out.join('\n');
+  // target dots
+  for (const t of targets) putChar(rows, t.row, t.col, '•');
 }
 
 /* ---------- viewport fit ---------- */
@@ -483,22 +474,35 @@ function originForShot(){
   };
 }
 
+/* ---------- targets ---------- */
+function buildTargets(){
+  const o = originForShot();
+  const arr = [];
+  for (let i=0;i<SHOTS;i++){
+    const col = START_AT_LEFT ? o.col + (i + 1)*SPACING : o.col - (i + 1)*SPACING;
+    arr.push({ row: o.row, col, word: SHOT_WORDS[i] || '' });
+  }
+  return arr;
+}
+function targetAngle(target){
+  const o = originForShot();
+  const dy = target.row - o.row, dx = target.col - o.col;
+  return Math.atan2(dy, dx) * 180/Math.PI;
+}
+let targets = buildTargets();
+
 /* ---------- state machine ---------- */
 let phase='open', frame=0, open01=0, L=0, shotIdx=0;
-
-function currentShot(){
-  return SHOT_WORDS[shotIdx % SHOT_WORDS.length];
-}
+let lastTip = { r:null, c:null }; // for logging coordinates on 'T'
 
 function step(){
   const o = originForShot();
-  const shot = currentShot();
+  const target = targets[shotIdx] || targets[targets.length-1];
 
-  // If TONGUE_ANGLE_DEG is non-zero, respect manual override; else use word angle
   const angle =
     (TONGUE_ANGLE_DEG && TONGUE_ANGLE_DEG !== 0)
       ? TONGUE_ANGLE_DEG
-      : shot.angle;
+      : targetAngle(target);
 
   switch(phase){
     case 'open':
@@ -518,7 +522,7 @@ function step(){
       L = Math.max(0, L - RET_SPEED);
       if (L<=0){
         shotIdx++;
-        if (shotIdx >= SHOT_WORDS.length){ phase='close'; } else { phase='extend'; }
+        if (shotIdx >= targets.length){ phase='close'; } else { phase='extend'; }
         frame=-1;
       }
       break;
@@ -529,21 +533,25 @@ function step(){
   }
   frame++;
 
-  // Base (ASCII w/ carved mouth)
+  // Base (ASCII with carved mouth)
   baseEl.textContent = carveMouth(lines0, open01);
 
-  // Overlay: tongue + word-on-tip while holding + optional guide
-  let overlayText = drawTongue(L, o.row, o.col, angle, TONGUE_THICK);
+  // Overlay grid: tongue + (word at tip during hold) + optional guide
+  const { rows, tipR, tipC } = drawTongueGrid(L, o.row, o.col, angle, TONGUE_THICK);
+  lastTip = { r: tipR, c: tipC };
 
-  if (phase === 'hold'){
+  if (phase === 'hold') {
     const rad = angle * Math.PI/180;
-    const tipR = o.row + Math.sin(rad) * (L-1);
-    const tipC = o.col + Math.cos(rad) * (L-1);
-    overlayText += '\n' + drawWord(shot.text, tipR, tipC);
+    const ahead = 2; // place the word just past the tip so it doesn't overwrite '»'
+    const wr = tipR + Math.sin(rad) * ahead;
+    const wc = tipC + Math.cos(rad) * ahead;
+    const word = targets[shotIdx]?.word || '';
+    if (word) putText(rows, wr, wc, word);
   }
 
-  overlayText += guideOverlay();
-  ovEl.textContent = overlayText;
+  if (showGuide) addGuideToRows(rows, targets);
+
+  ovEl.textContent = rowsToString(rows);
 }
 
 baseEl.textContent = ART;
@@ -555,32 +563,31 @@ document.addEventListener('visibilitychange', () => {
 
 /* ---------- hotkeys ---------- */
 addEventListener('keydown',(e)=>{
-  // L = log current full config
+  // L = log current values anytime
   if (e.key.toLowerCase() === 'l') { logConfig(); }
 
   // Mouth move/resize/tilt are ignored when locked
   if (!LOCK_MOUTH) {
-    if (e.key==='ArrowUp')   { MOUTH_ROW--;  fit(); }
-    if (e.key==='ArrowDown') { MOUTH_ROW++;  fit(); }
-    if (e.key==='ArrowLeft') { MOUTH_COL--;  fit(); }
-    if (e.key==='ArrowRight'){ MOUTH_COL++;  fit(); }
+    if (e.key==='ArrowUp')   { MOUTH_ROW--;  targets=buildTargets(); fit(); }
+    if (e.key==='ArrowDown') { MOUTH_ROW++;  targets=buildTargets(); fit(); }
+    if (e.key==='ArrowLeft') { MOUTH_COL--;  targets=buildTargets(); fit(); }
+    if (e.key==='ArrowRight'){ MOUTH_COL++;  targets=buildTargets(); fit(); }
 
-    if (e.key==='[') { MOUTH_W=Math.max(1,MOUTH_W-1);  fit(); }
-    if (e.key===']') { MOUTH_W+=1;                      fit(); }
-    if (e.key==='{') { MOUTH_H=Math.max(1,MOUTH_H-1);   fit(); }
-    if (e.key==='}') { MOUTH_H+=1;                      fit(); }
+    if (e.key==='[') { MOUTH_W=Math.max(1,MOUTH_W-1); targets=buildTargets(); fit(); }
+    if (e.key===']') { MOUTH_W+=1;                      targets=buildTargets(); fit(); }
+    if (e.key==='{') { MOUTH_H=Math.max(1,MOUTH_H-1);   targets=buildTargets(); fit(); }
+    if (e.key==='}') { MOUTH_H+=1;                      targets=buildTargets(); fit(); }
 
     if (e.key===',') { MOUTH_ROT_DEG = Math.max(-45, MOUTH_ROT_DEG - 1); fit(); }
     if (e.key==='.') { MOUTH_ROT_DEG = Math.min( 45, MOUTH_ROT_DEG + 1); fit(); }
   }
 
-  // ----- Tongue quick logger (only immediate coords) -----
-  if (e.key.toLowerCase() === 't'){
-    TONGUE_LOCK = !TONGUE_LOCK; // still toggle lock state if you want WASD gating
+  // ----- Tongue controls -----
+  if (e.key.toLowerCase() === 't'){ // toggle lock AND print immediate coordinates only
+    TONGUE_LOCK = !TONGUE_LOCK;
     const o = originForShot();
-    const shot = currentShot();
-    const currentAngle = (TONGUE_ANGLE_DEG && TONGUE_ANGLE_DEG !== 0) ? TONGUE_ANGLE_DEG : shot.angle;
-    console.log(`Tongue origin row=${o.row} col=${o.col} angle=${currentAngle}`);
+    console.log(`TONGUE_ORIGIN row=${o.row} col=${o.col}`);
+    if (lastTip.r != null) console.log(`TONGUE_TIP row=${Math.round(lastTip.r)} col=${Math.round(lastTip.c)}`);
   }
 
   // Move tongue origin with WASD when unlocked
@@ -589,18 +596,18 @@ addEventListener('keydown',(e)=>{
     if (TONGUE_ROW==null) TONGUE_ROW = oNow.row;
     if (TONGUE_COL==null) TONGUE_COL = oNow.col;
 
-    if (e.key.toLowerCase()==='w'){ TONGUE_ROW -= 1; }
-    if (e.key.toLowerCase()==='s'){ TONGUE_ROW += 1; }
-    if (e.key.toLowerCase()==='a'){ TONGUE_COL -= 1; }
-    if (e.key.toLowerCase()==='d'){ TONGUE_COL += 1; }
+    if (e.key.toLowerCase()==='w'){ TONGUE_ROW -= 1; targets=buildTargets(); }
+    if (e.key.toLowerCase()==='s'){ TONGUE_ROW += 1; targets=buildTargets(); }
+    if (e.key.toLowerCase()==='a'){ TONGUE_COL -= 1; targets=buildTargets(); }
+    if (e.key.toLowerCase()==='d'){ TONGUE_COL += 1; targets=buildTargets(); }
   }
 
   // Tongue thickness & angle
   if (e.key==='<'){ TONGUE_THICK = Math.max(1, TONGUE_THICK-1); }
   if (e.key=='>'){ TONGUE_THICK = Math.min(20, TONGUE_THICK+1); }
-  if (e.key===';'){ TONGUE_ANGLE_DEG = (TONGUE_ANGLE_DEG||0) - 1; }  // manual rotate left
-  if (e.key==="'"){ TONGUE_ANGLE_DEG = (TONGUE_ANGLE_DEG||0) + 1; }  // manual rotate right
-  if (e.key==='0'){ TONGUE_ANGLE_DEG = 0; }                          // return to word-angles
+  if (e.key===';'){ TONGUE_ANGLE_DEG = (TONGUE_ANGLE_DEG||0) - 1; }  // rotate left
+  if (e.key==="'"){ TONGUE_ANGLE_DEG = (TONGUE_ANGLE_DEG||0) + 1; }  // rotate right
+  if (e.key==='0'){ TONGUE_ANGLE_DEG = 0; }                          // auto-aim
 
   // Speed & pause
   if (e.key==='+' || e.key==='='){ FPS=Math.min(120,FPS+5); restart(); }
@@ -610,7 +617,6 @@ addEventListener('keydown',(e)=>{
     if (timer){ clearInterval(timer); timer=null; } else restart();
   }
 });
-
 function restart(){ clearInterval(timer); timer=setInterval(step, 1000/FPS); }
 
 /* kick things off */
