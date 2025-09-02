@@ -278,7 +278,7 @@ const ART = `
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                                                                                                                                                                
+                                                                                                                                                                                                                                                                                                                                                                                            
 `.trimEnd();
 
 /* ===== 2) Mouth (locked) ===== */
@@ -363,10 +363,11 @@ function carveMouth(srcLines, open01){
   return lines.map(a=>a.join('')).join('\n');
 }
 
-/* ===== Tongue drawing (thick) ===== */
+/* ===== Tongue drawing (thick) — FIXED Y SIGN ===== */
 function drawTongue(len, row0, col0, angleDeg){
   if (len<=0) return '';
-  const rad = angleDeg*Math.PI/180, dx=Math.cos(rad), dy=Math.sin(rad);
+  const rad = angleDeg*Math.PI/180;
+  const dx = Math.cos(rad), dy = -Math.sin(rad);   // << fix: invert Y
   const nx = -Math.sin(rad), ny = Math.cos(rad);
   const half = Math.floor((TONGUE_THICK-1)/2);
 
@@ -554,14 +555,16 @@ function nudgeCross(dr, dc, fast=false){
   cross.row = Math.max(0, cross.row + dr*step);
   cross.col = Math.max(0, cross.col + dc*step);
 }
+
+/* ===== Tip logger — FIXED Y SIGN ===== */
 function logTip(){
   // Log where the tip is right now (during extend/hold is most accurate)
   const o = originForShot();
   const t = currentTarget();
   const ang = ANGLE_DEG !== 0 ? ANGLE_DEG : targetAngle(t);
   const rad = ang*Math.PI/180;
-  const tipRow = Math.round(o.row + Math.sin(rad) * Math.max(0, L - 1));
-  const tipCol = Math.round(o.col + Math.cos(rad) * Math.max(0, L - 1));
+  const tipRow = Math.round(o.row + (-Math.sin(rad)) * Math.max(0, L - 1)); // << fix: invert Y
+  const tipCol = Math.round(o.col + ( Math.cos(rad)) * Math.max(0, L - 1));
   console.log(`TIP row: ${tipRow}, col: ${tipCol}`);
 }
 
