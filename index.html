@@ -322,7 +322,7 @@ let FPS = 30;
 const OPEN_STEPS   = 8;   // frames to open/close
 const EXT_SPEED    = 10;   // chars/frame (extend)
 const RET_SPEED    = 10;   // chars/frame (retract)
-const MAX_LEN      = 20000; // max tongue length
+const MAX_LEN      = 1000; // max tongue length
 const HOLD_FRAMES  = 8;   // pause at full extension
 const SEG = '='; const TIP = '»';
 
@@ -513,8 +513,10 @@ function step(){
       break;
     case 'extend': {
       const dx = Math.abs(target.col - o.col), dy = Math.abs(target.row - o.row);
-      const need = Math.min(MAX_LEN, Math.round(Math.hypot(dx,dy)));
+      const need = MAX_LEN;                   // always go all the way
       L = Math.min(need, L + EXT_SPEED);
+
+
       if (L>=need){ L=need; phase='hold'; frame=-1; }
       break;
     }
