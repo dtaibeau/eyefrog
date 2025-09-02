@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>eyefrog — ASCII mouth + tongue (4 shots)</title>
+<title>eyefrog — ASCII mouth + tongue (tilted oval)</title>
 <style>
   html,body{height:100%}
   body{
@@ -11,12 +11,15 @@
   .stage{position:relative; width:100vw; height:100vh; overflow:hidden}
   pre{
     margin:0; white-space:pre; tab-size:2;
-    line-height:1; letter-spacing:0; font-size:16px;  /* design size; we scale down */
+    line-height:1; letter-spacing:0; font-size:16px;     /* design size; auto-scaled */
     transform-origin: top left; position:absolute; top:0; left:0; user-select:none;
   }
   #base   { color:#19f06d; text-shadow:0 0 6px #093; }
   #overlay{ color:#b7ffcf; text-shadow:0 0 10px #0f5; }
-  #hud{position:fixed; left:10px; bottom:10px; font:12px/1.2 ui-monospace,monospace; color:#9fe9b3; opacity:.75}
+  #hud{
+    position:fixed; left:10px; bottom:10px; right:10px;
+    font:12px/1.2 ui-monospace,monospace; color:#9fe9b3; opacity:.75
+  }
 </style>
 
 <div class="stage">
@@ -24,8 +27,8 @@
   <pre id="overlay"></pre>
 </div>
 <div id="hud">
-  Arrows: move mouth • [ ] width • { } height • , . angle • +/- speed • P pause<br/>
-  Edit constants at top to set spacing/targets if you want exact coords
+  Arrows: move mouth • [ ] width • { } height • , . tilt • +/- speed • P pause • G guide<br/>
+  Edit constants near the top to change # of shots, spacing, speeds, etc.
 </div>
 
 <script>
@@ -270,80 +273,95 @@ const ART = `
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                                                                                                                                                               
+                                                                                                                                                                                                                                                                                                                                                                                                
 `.trimEnd();
 
-/* ===== 2) Configure mouth + targets ===== */
+/* ===== 2) Mouth + targets configuration ===== */
 let MOUTH_ROW = 75;     // top-left of mouth "box" (characters)
 let MOUTH_COL = 68;
 let MOUTH_W   = 10;     // box width (chars)
-let MOUTH_H   = 5;      // box height
-let ANGLE_DEG = 0;      // 0 = straight right; use +/- with , and . to tilt
+let MOUTH_H   = 5;      // box height (max opening)
+let MOUTH_ROT_DEG = -8; // mouth tilt in degrees (negative = right side higher)
+
+let ANGLE_DEG = 0;      // tongue angle; 0 = auto-aim toward target (recommended)
+
 const SHOTS   = 4;      // number of shots
 const SPACING = 7;      // spacing (chars) along same row
-const START_AT_LEFT = true;  // if false, starts to the right and goes left
+const START_AT_LEFT = true; // if false, shoots to the left
 
 /* ===== 3) Animation timing ===== */
 let FPS = 30;
-const OPEN_STEPS   = 8;   // frames to open/close
+const OPEN_STEPS   = 8;   // frames to open/close mouth
 const EXT_SPEED    = 3;   // chars per frame (extend)
 const RET_SPEED    = 4;   // chars per frame (retract)
 const MAX_LEN      = 120; // clamp if targets are far
 const HOLD_FRAMES  = 8;   // pause at full extension
 const SEG = '='; const TIP = '»';
 
+/* ===== 4) Guide overlay ===== */
+let showGuide = true;       // toggle with "g"
+const GUIDE_CHAR = '·';
+
 const baseEl = document.getElementById('base');
 const ovEl   = document.getElementById('overlay');
 const lines0 = ART.split('\n');
 
-// OVAL mouth that opens top→bottom (height scales, width stays fixed)
+/* ---------- rotated-oval mouth, opens top→bottom (height scales) ---------- */
 function carveMouth(srcLines, open01){
-    let MOUTH_ROT_DEG = -12; // negative = tilt up on the right. Try -12..+12
+  const W = Math.max(1, MOUTH_W);
+  const H = Math.max(1, Math.round(MOUTH_H * open01)); // grow only vertically
 
-    const W = Math.max(1, MOUTH_W);
-    const H = Math.max(1, Math.round(MOUTH_H * open01)); // grow only vertically
+  const lines = srcLines.map(s => s.split(''));
 
-    const lines = srcLines.map(s => s.split(''));
+  // ellipse center uses the FULL mouth box center (stable)
+  const cx = MOUTH_COL + Math.floor(W / 2);
+  const cy = MOUTH_ROW + Math.floor(MOUTH_H / 2);
 
-    // ellipse center inside the mouth box we’re clearing *this frame*
-    const cy = MOUTH_ROW + Math.floor(H / 2);
-    const cx = MOUTH_COL + Math.floor(W / 2);
-    const a  = W / 2;                 // horizontal radius (fixed)
-    const b  = Math.max(0.5, H / 2);  // vertical radius (grows with open)
+  const a  = W / 2;                    // horizontal radius (fixed)
+  const b  = Math.max(0.5, H / 2);     // vertical radius (grows while opening)
 
-    for (let r = 0; r < H; r++){
-        const rr = MOUTH_ROW + r;
-        if (rr < 0 || rr >= lines.length) continue;
-        for (let c = 0; c < W; c++){
-        const cc = MOUTH_COL + c;
-        if (cc < 0) continue;
-        // pad line if needed
-        while (cc >= lines[rr].length) lines[rr].push(' ');
+  const th = (MOUTH_ROT_DEG * Math.PI) / 180; // rotation (radians)
+  const cos = Math.cos(th), sin = Math.sin(th);
 
-        // normalized ellipse test (x^2/a^2 + y^2/b^2 <= 1)
-        const x = (cc - cx) / a;
-        const y = (rr - cy) / b;
-        if ((x*x + y*y) <= 1) lines[rr][cc] = ' ';
-        }
+  // Only scan the currently-open vertical extent (top→bottom)
+  for (let r = 0; r < H; r++){
+    const rr = MOUTH_ROW + r;
+    if (rr < 0 || rr >= lines.length) continue;
+
+    for (let c = 0; c < W; c++){
+      const cc = MOUTH_COL + c;
+      if (cc < 0) continue;
+      while (cc >= lines[rr].length) lines[rr].push(' ');
+
+      const dx = cc - cx;
+      const dy = rr - cy;
+
+      // rotate point by -theta (equivalent to rotating ellipse by +theta)
+      const xr =  dx * cos + dy * sin;
+      const yr = -dx * sin + dy * cos;
+
+      if ((xr * xr) / (a * a) + (yr * yr) / (b * b) <= 1) {
+        lines[rr][cc] = ' '; // punch a hole
+      }
     }
-    return lines.map(a => a.join('')).join('\n');
-    }
+  }
+  return lines.map(a=>a.join('')).join('\n');
+}
 
-
-/* --- tongue path: straight line along angle from origin --- */
+/* ---------- draw a straight tongue from (row0,col0) along angle ---------- */
 function drawTongue(len, row0, col0, angleDeg){
   if (len<=0) return '';
   const rad = angleDeg * Math.PI/180, dx = Math.cos(rad), dy = Math.sin(rad);
   const rows = new Map();
-  const place = (r,c,ch)=>{
+  const put = (r,c,ch)=>{
     r = Math.round(r); c = Math.max(0, Math.round(c));
     if (r<0) return; const a = rows.get(r)||[]; a.push([c,ch]); rows.set(r,a);
   };
-  for (let i=0;i<Math.max(0,len-1);i++) place(row0+dy*i, col0+dx*i, SEG);
-  place(row0+dy*(len-1), col0+dx*(len-1), TIP);
+  for (let i=0;i<Math.max(0,len-1);i++) put(row0+dy*i, col0+dx*i, SEG);
+  put(row0+dy*(len-1), col0+dx*(len-1), TIP);
 
-  const maxR = Math.max(...rows.keys());
-  let out = [];
+  const maxR = Math.max(...rows.keys(), 0);
+  const out = [];
   for (let r=0;r<=maxR;r++){
     const a = rows.get(r); if (!a){ out.push(''); continue; }
     a.sort((x,y)=>x[0]-y[0]);
@@ -354,7 +372,50 @@ function drawTongue(len, row0, col0, angleDeg){
   return '\n'.repeat(Math.max(0,row0)) + out.join('\n');
 }
 
-/* --- viewport fit (scale both layers together) --- */
+/* ---------- rotated-oval guide + target dots ---------- */
+function guideOverlay(targets) {
+  const rows = new Map();
+  const put = (r,c,ch)=>{
+    r = Math.round(r); c = Math.max(0, Math.round(c));
+    if (r < 0) return; const a = rows.get(r) || []; a.push([c, ch]); rows.set(r, a);
+  };
+
+  const cx = MOUTH_COL + Math.floor(MOUTH_W/2);
+  const cy = MOUTH_ROW + Math.floor(MOUTH_H/2);
+  const a  = MOUTH_W/2, b = MOUTH_H/2;
+
+  const th = (MOUTH_ROT_DEG * Math.PI) / 180, cos = Math.cos(th), sin = Math.sin(th);
+
+  // sample outline across the box
+  for (let r = MOUTH_ROW; r < MOUTH_ROW + MOUTH_H; r++){
+    for (let c = MOUTH_COL; c < MOUTH_COL + MOUTH_W; c++){
+      const dx = c - cx, dy = r - cy;
+      const xr =  dx * cos + dy * sin;
+      const yr = -dx * sin + dy * cos;
+      const v = (xr * xr) / (a * a) + (yr * yr) / (b * b);
+      if (v > 0.97 && v < 1.03) put(r, c, GUIDE_CHAR); // thin band
+    }
+  }
+
+  // target dots
+  for (const t of targets) put(t.row, t.col, '•');
+
+  const maxR = Math.max(...rows.keys(), 0), out = [];
+  for (let r = 0; r <= maxR; r++){
+    const arow = rows.get(r);
+    if (!arow){ out.push(''); continue; }
+    arow.sort((x,y)=>x[0]-y[0]);
+    let s='', last=-1;
+    for (const [col,ch] of arow){
+      if (col>last+1) s += ' '.repeat(col-(last+1));
+      s += ch; last=col;
+    }
+    out[r]=s;
+  }
+  return '\n'.repeat(Math.max(0, Math.min(MOUTH_ROW, out.length ? MOUTH_ROW : 0))) + out.join('\n');
+}
+
+/* ---------- viewport fit (scale both layers together) ---------- */
 function fit(){
   baseEl.style.transform = ovEl.style.transform = 'scale(1)';
   requestAnimationFrame(()=>{
@@ -369,36 +430,38 @@ function fit(){
 }
 addEventListener('resize', fit);
 
-/* --- targets on same row (spacing) --- */
+/* ---------- targets on the same row (spacing) ---------- */
+function originForShot(){
+  // center of the full mouth box (stable while opening/closing/tilting)
+  return {
+    row: MOUTH_ROW + Math.floor(MOUTH_H / 2),
+    col: MOUTH_COL + Math.floor(MOUTH_W / 2)
+  };
+}
 function buildTargets(){
-  const mouthMidRow = MOUTH_ROW + Math.floor(MOUTH_H/2);
-  const startCol = MOUTH_COL + MOUTH_W;
+  const o = originForShot();
   const arr = [];
   for (let i=0;i<SHOTS;i++){
-    const col = START_AT_LEFT ? startCol + i*SPACING : startCol - i*SPACING;
-    arr.push({row: mouthMidRow, col});
+    const col = START_AT_LEFT
+      ? o.col + (i + 1) * SPACING
+      : o.col - (i + 1) * SPACING;
+    arr.push({ row: o.row, col });
   }
   return arr;
 }
-
-/* --- state machine: open -> extend -> hold -> retract -> next target -> close -> repeat --- */
-let phase='open', frame=0, open01=0, L=0, shotIdx=0;
-function originForShot(){
-  // origin is at mouth edge; use same row as targets
-  return {row: MOUTH_ROW + Math.floor(MOUTH_H/2), col: MOUTH_COL + MOUTH_W};
-}
 function targetAngle(target){
-  // compute angle from origin to target so you can tilt automatically if SPACING != 0
   const o = originForShot();
   const dy = target.row - o.row, dx = target.col - o.col;
   return Math.atan2(dy, dx) * 180/Math.PI;
 }
 let targets = buildTargets();
 
+/* ---------- state machine ---------- */
+let phase='open', frame=0, open01=0, L=0, shotIdx=0;
+
 function step(){
   const o = originForShot();
   const target = targets[shotIdx] || targets[targets.length-1];
-  // If ANGLE_DEG is 0, tongue is horizontal; comment next line to force manual angle
   const angle = ANGLE_DEG !== 0 ? ANGLE_DEG : targetAngle(target);
 
   switch(phase){
@@ -432,34 +495,42 @@ function step(){
   frame++;
 
   baseEl.textContent = carveMouth(lines0, open01);
-  ovEl.textContent   = drawTongue(L, o.row, o.col, ANGLE_DEG!==0 ? ANGLE_DEG : targetAngle(target));
+  ovEl.textContent   = drawTongue(L, o.row, o.col, angle)
+                     + (showGuide ? guideOverlay(targets) : '');
 }
 
-baseEl.textContent = ART; // quick preview
+baseEl.textContent = ART; // initial preview
 let timer = setInterval(step, 1000/FPS);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden){ clearInterval(timer); timer=null; }
   else if (!timer){ timer=setInterval(step, 1000/FPS); }
 });
 
-/* --- live controls for lining up with your art --- */
+/* ---------- live controls ---------- */
 addEventListener('keydown',(e)=>{
   if (e.key==='ArrowUp')   { MOUTH_ROW--;  fit(); targets=buildTargets(); }
   if (e.key==='ArrowDown') { MOUTH_ROW++;  fit(); targets=buildTargets(); }
   if (e.key==='ArrowLeft') { MOUTH_COL--;  fit(); targets=buildTargets(); }
   if (e.key==='ArrowRight'){ MOUTH_COL++;  fit(); targets=buildTargets(); }
+
   if (e.key==='[') { MOUTH_W=Math.max(1,MOUTH_W-1); fit(); targets=buildTargets(); }
   if (e.key===']') { MOUTH_W+=1;                      fit(); targets=buildTargets(); }
-  if (e.key==='{') { MOUTH_H=Math.max(1,MOUTH_H-1); fit(); targets=buildTargets(); }
-  if (e.key==='}') { MOUTH_H+=1;                     fit(); targets=buildTargets(); }
-  if (e.key===',') { ANGLE_DEG-=3; }   // manual tilt override
-  if (e.key==='.') { ANGLE_DEG+=3; }
+  if (e.key==='{') { MOUTH_H=Math.max(1,MOUTH_H-1);   fit(); targets=buildTargets(); }
+  if (e.key==='}') { MOUTH_H+=1;                      fit(); targets=buildTargets(); }
+
+  // Mouth tilt (rotate the oval) – requested behavior
+  if (e.key===',') { MOUTH_ROT_DEG = Math.max(-45, MOUTH_ROT_DEG - 1); fit(); }
+  if (e.key=== '.') { MOUTH_ROT_DEG = Math.min( 45, MOUTH_ROT_DEG + 1); fit(); }
+
   if (e.key==='+' || e.key==='='){ FPS=Math.min(120,FPS+5); restart(); }
   if (e.key==='-' || e.key==='_'){ FPS=Math.max(5,FPS-5);  restart(); }
-  if (e.key.toLowerCase()==='p'){ // pause
+
+  if (e.key.toLowerCase()==='g'){ showGuide=!showGuide; }
+  if (e.key.toLowerCase()==='p'){
     if (timer){ clearInterval(timer); timer=null; } else restart();
   }
 });
 function restart(){ clearInterval(timer); timer=setInterval(step, 1000/FPS); }
+
 fit();
 </script>
