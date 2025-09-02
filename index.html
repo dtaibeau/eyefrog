@@ -488,7 +488,8 @@ function currentTarget(){
 function step(){
   const o = originForShot();
   const t = currentTarget();
-  const angle = ANGLE_DEG !== 0 ? ANGLE_DEG : targetAngle(t);
+  const angle = - (ANGLE_DEG !== 0 ? ANGLE_DEG : targetAngle(t));
+
 
   switch(phase){
     case 'open':
