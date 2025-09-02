@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>eyefrog — movable tongue target + 4 locked shots</title>
+<title>eyefrog — manual tongue (WASD + ; ')</title>
 <style>
   html,body{height:100%}
   body{
@@ -11,7 +11,7 @@
   .stage{position:relative; width:100vw; height:100vh; overflow:hidden}
   pre{
     margin:0; white-space:pre; tab-size:2;
-    line-height:1; letter-spacing:0; font-size:16px; /* character cell size */
+    line-height:1; letter-spacing:0; font-size:16px; /* char cell size */
     transform-origin: top left; position:absolute; top:0; left:0; user-select:none;
   }
   #base   { color:#19f06d; text-shadow:0 0 6px #093; }
@@ -29,10 +29,11 @@
 </div>
 <div id="hud">
   <div>
-    <b>Move Tongue Target (crosshair)</b>: <kbd>I</kbd>/<kbd>K</kbd> up/down, <kbd>J</kbd>/<kbd>L</kbd> left/right (hold for faster).<br>
-    <b>Save into slot</b>: <kbd>1</kbd>=NOTHING, <kbd>2</kbd>=TO, <kbd>3</kbd>=SEE, <kbd>4</kbd>=HERE. &nbsp;
-    <b>Lock/Unlock targets</b>: <kbd>T</kbd>. &nbsp; <b>Log current tip</b>: <kbd>K</kbd> (while extending).<br>
-    <b>Show/Hide crosshair+labels</b>: <kbd>G</kbd>. &nbsp; <b>Pause</b>: <kbd>P</kbd>. &nbsp; <b>Speed</b>: <kbd>+</kbd>/<kbd>-</kbd>.
+    <b>Move tongue origin</b>: <kbd>W</kbd>/<kbd>S</kbd>/<kbd>A</kbd>/<kbd>D</kbd> (hold <kbd>Shift</kbd> for faster) &nbsp;|&nbsp;
+    <b>Rotate</b>: <kbd>;</kbd> CCW, <kbd>'</kbd> CW &nbsp;|&nbsp;
+    <b>Length</b>: <kbd>[</kbd> / <kbd>]</kbd> &nbsp;|&nbsp;
+    <b>Guide</b>: <kbd>G</kbd> &nbsp;|&nbsp;
+    <b>Log config</b>: <kbd>L</kbd>
   </div>
 </div>
 
@@ -278,195 +279,32 @@ const ART = `
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                                                                                                                                                            
+                                                                                                                                                                                                                                                                                                                                                                                                
 `.trimEnd();
 
-/* ===== 2) Mouth (locked) ===== */
-let MOUTH_ROW = 44;
-let MOUTH_COL = 70;
-let MOUTH_W   = 252;
-let MOUTH_H   = 12;
-let MOUTH_ROT_DEG = -16;
+/* ===== 2) Tongue placement block (your requested vars) ===== */
+let TONGUE_ROW = 44;
+let TONGUE_COL = 70;
+let TONGUE_W   = 50;
+let TONGUE_H   = 50;
+let TONGUE_ROT_DEG = 0;
 
-const LOCK_MOUTH = true;  // we won't move the mouth now
-let showGuide = true;     // show crosshair/targets on by default for positioning
+/* Visuals */
+const TONGUE_THICK = 3;   // rows thick
+let   TONGUE_LEN   = 160; // change with [ and ]
+const SEG='=', TIP='»';
+let showGuide = true;
 
-/* ===== 3) Tongue & Targets ===== */
-let ANGLE_DEG = 0;          // 0 = use angle to target automatically
-const TONGUE_THICK = 3;     // tongue thickness in rows
-
-// Four locked shots + labels (edit after you record coords)
-const SHOTS = [
-  { row: 60, col: 120, label: "NOTHING" },
-  { row: 60, col: 140, label: "TO"      },
-  { row: 60, col: 160, label: "SEE"     },
-  { row: 60, col: 180, label: "HERE"    },
-];
-
-// Whether to respect SHOTS (locked) or use the movable crosshair
-let LOCK_TONGUE_TARGETS = false;
-
-// Movable crosshair target for positioning
-let cross = { row: 60, col: 120 };
-const CROSS_CHAR = '✚';   // crosshair glyph
-
-/* ===== 4) Timing ===== */
-let FPS = 30;
-const OPEN_STEPS   = 8;
-const EXT_SPEED    = 10;
-const RET_SPEED    = 10;
-const MAX_LEN      = 1000;   // cap — but we stop at distance to target
-const HOLD_FRAMES  = 60;     // longer hold so you can see the word
-
-const SEG = '='; const TIP = '»';
-
-/* ===== 5) DOM & lines ===== */
+/* ===== DOM & base render ===== */
 const baseEl = document.getElementById('base');
 const ovEl   = document.getElementById('overlay');
+baseEl.textContent = ART;
 const lines0 = ART.split('\n');
-
-/* ===== Utilities ===== */
-function originForShot(){
-  return { row: MOUTH_ROW + Math.floor(MOUTH_H/2),
-           col: MOUTH_COL + Math.floor(MOUTH_W/2) };
-}
-function targetAngle(target){
-  const o = originForShot();
-  return Math.atan2(target.row - o.row, target.col - o.col) * 180 / Math.PI;
-}
-
-/* ===== Mouth carving (rotated oval, opens top→bottom) ===== */
-function carveMouth(srcLines, open01){
-  const W = Math.max(1, MOUTH_W);
-  const H = Math.max(1, Math.round(MOUTH_H * open01));
-
-  const lines = srcLines.map(s => s.split(''));
-  const cx = MOUTH_COL + Math.floor(W/2);
-  const cy = MOUTH_ROW + Math.floor(MOUTH_H/2);
-
-  const a = W/2;
-  const b = Math.max(0.5, H/2);
-
-  const th = (MOUTH_ROT_DEG*Math.PI)/180, cos=Math.cos(th), sin=Math.sin(th);
-
-  for (let r=0;r<H;r++){
-    const rr = MOUTH_ROW + r; if (rr<0 || rr>=lines.length) continue;
-    for (let c=0;c<W;c++){
-      const cc = MOUTH_COL + c; if (cc<0) continue;
-      while (cc >= lines[rr].length) lines[rr].push(' ');
-      const dx = cc - cx, dy = rr - cy;
-      const xr =  dx*cos + dy*sin;
-      const yr = -dx*sin + dy*cos;
-      if ((xr*xr)/(a*a) + (yr*yr)/(b*b) <= 1) lines[rr][cc] = ' ';
-    }
-  }
-  return lines.map(a=>a.join('')).join('\n');
-}
-
-/* ===== Tongue drawing (thick) — FIXED Y SIGN ===== */
-function drawTongue(len, row0, col0, angleDeg){
-  if (len<=0) return '';
-  const rad = angleDeg*Math.PI/180;
-  const dx = Math.cos(rad), dy = -Math.sin(rad);   // << fix: invert Y
-  const nx = -Math.sin(rad), ny = Math.cos(rad);
-  const half = Math.floor((TONGUE_THICK-1)/2);
-
-  const rows = new Map();
-  const put = (r,c,ch)=>{
-    r=Math.round(r); c=Math.max(0,Math.round(c));
-    if (r<0) return; const a=rows.get(r)||[]; a.push([c,ch]); rows.set(r,a);
-  };
-
-  for (let i=0;i<Math.max(0,len-1);i++){
-    for (let t=-half;t<=half;t++){
-      put(row0 + dy*i + ny*t, col0 + dx*i + nx*t, SEG);
-    }
-  }
-  for (let t=-half;t<=half;t++){
-    put(row0 + dy*(len-1) + ny*t, col0 + dx*(len-1) + nx*t, TIP);
-  }
-
-  const maxR = Math.max(...rows.keys(), 0), out=[];
-  for (let r=0;r<=maxR;r++){
-    const a=rows.get(r); if(!a){out.push('');continue;}
-    a.sort((x,y)=>x[0]-y[0]);
-    let s='', last=-1;
-    for (const [col,ch] of a){
-      if (col>last+1) s+=' '.repeat(col-(last+1));
-      s+=ch; last=col;
-    }
-    out[r]=s;
-  }
-  return '\n'.repeat(Math.max(0,row0)) + out.join('\n');
-}
-
-/* ===== Words layer at current shot ===== */
-function drawWord(p){
-  if (!p || !p.label) return '';
-  const rows=new Map();
-  const put=(r,c,s)=>{ r=Math.round(r); c=Math.max(0,Math.round(c));
-    if (r<0) return; const a=rows.get(r)||[]; a.push([c,s]); rows.set(r,a);
-  };
-  const start = p.col - Math.floor(p.label.length/2);
-  put(p.row, start, p.label);
-
-  const maxR = Math.max(...rows.keys(),0), out=[];
-  for (let r=0;r<=maxR;r++){
-    const a=rows.get(r); if(!a){out.push('');continue;}
-    a.sort((x,y)=>x[0]-y[0]);
-    let s='', last=-1;
-    for (const [col,text] of a){
-      if (col>last+1) s+=' '.repeat(col-(last+1));
-      s+=text; last = col + text.length - 1;
-    }
-    out[r]=s;
-  }
-  return '\n'.repeat(Math.max(0,p.row)) + out.join('\n');
-}
-
-/* ===== Guide (oval edge, 4 targets, crosshair) ===== */
-function guideOverlay(currentShotIndex){
-  const rows = new Map();
-  const put=(r,c,ch)=>{ r=Math.round(r); c=Math.max(0,Math.round(c));
-    if (r<0) return; const a=rows.get(r)||[]; a.push([c,ch]); rows.set(r,a);
-  };
-
-  // mouth outline
-  const cx = MOUTH_COL + Math.floor(MOUTH_W/2);
-  const cy = MOUTH_ROW + Math.floor(MOUTH_H/2);
-  const a  = MOUTH_W/2, b = MOUTH_H/2;
-  const th=(MOUTH_ROT_DEG*Math.PI)/180, cos=Math.cos(th), sin=Math.sin(th);
-  for (let r=MOUTH_ROW;r<MOUTH_ROW+MOUTH_H;r++){
-    for (let c=MOUTH_COL;c<MOUTH_COL+MOUTH_W;c++){
-      const dx=c-cx, dy=r-cy;
-      const xr= dx*cos + dy*sin, yr= -dx*sin + dy*cos;
-      const v=(xr*xr)/(a*a) + (yr*yr)/(b*b);
-      if (v>0.97 && v<1.03) put(r,c,'·');
-    }
-  }
-
-  // locked shots markers
-  SHOTS.forEach((p,i)=> put(p.row, p.col, i===currentShotIndex?'●':'•'));
-
-  // crosshair
-  put(cross.row, cross.col, CROSS_CHAR);
-
-  const maxR=Math.max(...rows.keys(),0), out=[];
-  for (let r=0;r<=maxR;r++){
-    const a=rows.get(r); if(!a){out.push('');continue;}
-    a.sort((x,y)=>x[0]-y[0]);
-    let s='', last=-1;
-    for (const [col,ch] of a){ if (col>last+1) s+=' '.repeat(col-(last+1)); s+=ch; last=col; }
-    out[r]=s;
-  }
-  return '\n'.repeat(Math.max(0, Math.min(MOUTH_ROW, out.length?MOUTH_ROW:0))) + out.join('\n');
-}
 
 /* ===== Fit to viewport ===== */
 function fit(){
   baseEl.style.transform = ovEl.style.transform = 'scale(1)';
   requestAnimationFrame(()=>{
-    baseEl.textContent = carveMouth(lines0, open01);
     const pad=12, maxW=innerWidth-pad, maxH=innerHeight-pad;
     const w=baseEl.scrollWidth, h=baseEl.scrollHeight;
     const scale = Math.min(maxW/w, maxH/h, 1);
@@ -478,132 +316,129 @@ function fit(){
 }
 addEventListener('resize', fit);
 
-/* ===== State ===== */
-let phase='open', frame=0, open01=0, L=0, shotIdx=0;
-
-/* ===== Main step ===== */
-function currentTarget(){
-  if (LOCK_TONGUE_TARGETS) return SHOTS[shotIdx] || SHOTS[SHOTS.length-1];
-  return cross; // movable crosshair target
+/* ===== Helpers ===== */
+function tongueOrigin(){
+  // center of the placement box
+  return {
+    row: TONGUE_ROW + Math.floor(TONGUE_H/2),
+    col: TONGUE_COL + Math.floor(TONGUE_W/2),
+  };
 }
-function step(){
-  const o = originForShot();
-  const t = currentTarget();
-  const angle = ANGLE_DEG !== 0 ? ANGLE_DEG : targetAngle(t);
 
-  switch(phase){
-    case 'open':
-      open01 = Math.min(1, (frame+1)/OPEN_STEPS);
-      if (open01>=1){ phase='extend'; frame=-1; }
-      break;
-    case 'extend': {
-      const dx=Math.abs(t.col - o.col), dy=Math.abs(t.row - o.row);
-      const need = Math.min(MAX_LEN, Math.round(Math.hypot(dx,dy)));
-      L = Math.min(need, L + EXT_SPEED);
-      if (L>=need){ L=need; phase='hold'; frame=-1; }
-      break;
+/* Draw a thick tongue line starting at (row0,col0) with angle (deg) */
+function drawTongue(len, row0, col0, angleDeg){
+  if (len<=0) return '';
+  const rad = angleDeg*Math.PI/180;
+  const dx = Math.cos(rad), dy = -Math.sin(rad);  // screen Y is down → invert sin
+  const nx = -Math.sin(rad), ny =  Math.cos(rad);
+  const half = Math.floor((TONGUE_THICK-1)/2);
+
+  const rows = new Map();
+  const put = (r,c,ch)=>{
+    r=Math.round(r); c=Math.max(0,Math.round(c));
+    if (r<0) return; const a=rows.get(r)||[]; a.push([c,ch]); rows.set(r,a);
+  };
+  // shaft
+  for (let i=0;i<Math.max(0,len-1);i++){
+    for (let t=-half;t<=half;t++){
+      put(row0 + dy*i + ny*t, col0 + dx*i + nx*t, SEG);
     }
-    case 'hold':
-      if (frame>=HOLD_FRAMES){ phase='retract'; frame=-1; }
-      break;
-    case 'retract':
-      L = Math.max(0, L - RET_SPEED);
-      if (L<=0){
-        if (LOCK_TONGUE_TARGETS){
-          shotIdx++;
-          if (shotIdx >= SHOTS.length){ phase='close'; } else { phase='extend'; }
-        } else {
-          phase='close';
-        }
-        frame=-1;
-      }
-      break;
-    case 'close':
-      open01 = Math.max(0, 1 - (frame+1)/OPEN_STEPS);
-      if (open01<=0){
-        phase='open'; frame=-1;
-        if (LOCK_TONGUE_TARGETS) shotIdx = 0; // loop shots when locked
-      }
-      break;
   }
-  frame++;
+  // tip
+  for (let t=-half;t<=half;t++){
+    put(row0 + dy*(len-1) + ny*t, col0 + dx*(len-1) + nx*t, TIP);
+  }
 
-  // Base and overlay
-  baseEl.textContent = carveMouth(lines0, open01);
-
-  const tForWord = LOCK_TONGUE_TARGETS ? SHOTS[shotIdx] : null;
-  const wordLayer = (phase==='hold' && tForWord) ? drawWord(tForWord) : '';
-
-  ovEl.textContent =
-    drawTongue(L, o.row, o.col, angle) +
-    (showGuide ? guideOverlay(LOCK_TONGUE_TARGETS ? shotIdx : -1) : '') +
-    wordLayer;
+  const maxR = Math.max(...rows.keys(), 0), out=[];
+  for (let r=0;r<=maxR;r++){
+    const a=rows.get(r); if(!a){out.push('');continue;}
+    a.sort((x,y)=>x[0]-y[0]);
+    let s='', last=-1;
+    for (const [col,ch] of a){ if (col>last+1) s+=' '.repeat(col-(last+1)); s+=ch; last=col; }
+    out[r]=s;
+  }
+  // vertical offset to row0 so we don't render tons of blank top lines
+  return '\n'.repeat(Math.max(0, Math.min(row0, out.length?row0:0))) + out.join('\n');
 }
 
-/* ===== Start / Pause ===== */
-baseEl.textContent = ART;
-let timer = setInterval(step, 1000/FPS);
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden){ clearInterval(timer); timer=null; }
-  else if (!timer){ timer=setInterval(step, 1000/FPS); }
-});
-function restart(){ clearInterval(timer); timer=setInterval(step, 1000/FPS); }
+/* Guide overlay: shows the tongue placement box + its center */
+function guideOverlay(){
+  if (!showGuide) return '';
+  const rows = new Map();
+  const put=(r,c,ch)=>{ r=Math.round(r); c=Math.max(0,Math.round(c));
+    if (r<0) return; const a=rows.get(r)||[]; a.push([c,ch]); rows.set(r,a);
+  };
 
-/* ===== Movement & hotkeys ===== */
-function nudgeCross(dr, dc, fast=false){
-  const step = fast ? 10 : 1;
-  cross.row = Math.max(0, cross.row + dr*step);
-  cross.col = Math.max(0, cross.col + dc*step);
+  // draw rectangle border
+  for (let c=TONGUE_COL; c<TONGUE_COL+TONGUE_W; c++){
+    put(TONGUE_ROW, c, '·');
+    put(TONGUE_ROW+TONGUE_H-1, c, '·');
+  }
+  for (let r=TONGUE_ROW; r<TONGUE_ROW+TONGUE_H; r++){
+    put(r, TONGUE_COL, '·');
+    put(r, TONGUE_COL+TONGUE_W-1, '·');
+  }
+
+  // center (origin) marker
+  const o = tongueOrigin();
+  put(o.row, o.col, '✚');
+
+  const maxR=Math.max(...rows.keys(),0), out=[];
+  for (let r=0;r<=maxR;r++){
+    const a=rows.get(r); if(!a){out.push('');continue;}
+    a.sort((x,y)=>x[0]-y[0]);
+    let s='', last=-1;
+    for (const [col,ch] of a){ if (col>last+1) s+=' '.repeat(col-(last+1)); s+=ch; last=col; }
+    out[r]=s;
+  }
+  return '\n'.repeat(Math.max(0, Math.min(TONGUE_ROW, out.length?TONGUE_ROW:0))) + out.join('\n');
 }
 
-/* ===== Tip logger — FIXED Y SIGN ===== */
-function logTip(){
-  // Log where the tip is right now (during extend/hold is most accurate)
-  const o = originForShot();
-  const t = currentTarget();
-  const ang = ANGLE_DEG !== 0 ? ANGLE_DEG : targetAngle(t);
-  const rad = ang*Math.PI/180;
-  const tipRow = Math.round(o.row + (-Math.sin(rad)) * Math.max(0, L - 1)); // << fix: invert Y
-  const tipCol = Math.round(o.col + ( Math.cos(rad)) * Math.max(0, L - 1));
-  console.log(`TIP row: ${tipRow}, col: ${tipCol}`);
+/* Repaint */
+function render(){
+  const o = tongueOrigin();
+  ovEl.textContent = drawTongue(TONGUE_LEN, o.row, o.col, TONGUE_ROT_DEG) + guideOverlay();
 }
 
-addEventListener('keydown',(e)=>{
+/* Key controls */
+function logTongue(){
+  console.log("TONGUE_ROW =", TONGUE_ROW);
+  console.log("TONGUE_COL =", TONGUE_COL);
+  console.log("TONGUE_W   =", TONGUE_W);
+  console.log("TONGUE_H   =", TONGUE_H);
+  console.log("TONGUE_ROT_DEG =", TONGUE_ROT_DEG);
+  console.log("TONGUE_LEN =", TONGUE_LEN);
+}
+addEventListener('keydown', (e)=>{
   const k = e.key;
-  if (k.toLowerCase()==='p'){ if (timer){clearInterval(timer); timer=null;} else restart(); }
-  if (k==='+'||k==='='){ FPS=Math.min(120,FPS+5); restart(); }
-  if (k==='-'||k==='_'){ FPS=Math.max(5,FPS-5);  restart(); }
-  if (k.toLowerCase()==='g'){ showGuide=!showGuide; }
-
-  // Toggle locked shots vs movable crosshair
-  if (k.toLowerCase()==='t'){
-    LOCK_TONGUE_TARGETS = !LOCK_TONGUE_TARGETS;
-    console.log(`LOCK_TONGUE_TARGETS = ${LOCK_TONGUE_TARGETS}`);
-    // reset phase to see immediate effect
-    phase='open'; frame=0; L=0; shotIdx=0;
-  }
-
-  // Move crosshair (hold Shift for faster)
   const fast = e.shiftKey;
-  if (!LOCK_TONGUE_TARGETS){
-    if (k.toLowerCase()==='i') nudgeCross(-1, 0, fast);
-    if (k.toLowerCase()==='k') nudgeCross( 1, 0, fast);
-    if (k.toLowerCase()==='j') nudgeCross( 0,-1, fast);
-    if (k.toLowerCase()==='l') nudgeCross( 0, 1, fast);
-  }
+  const step = fast ? 10 : 1;
+  let changed=false;
 
-  // Save crosshair into a shot slot
-  if (!LOCK_TONGUE_TARGETS){
-    if (k==='1'){ SHOTS[0].row=cross.row; SHOTS[0].col=cross.col; console.log('Saved NOTHING to', SHOTS[0]); }
-    if (k==='2'){ SHOTS[1].row=cross.row; SHOTS[1].col=cross.col; console.log('Saved TO to', SHOTS[1]); }
-    if (k==='3'){ SHOTS[2].row=cross.row; SHOTS[2].col=cross.col; console.log('Saved SEE to', SHOTS[2]); }
-    if (k==='4'){ SHOTS[3].row=cross.row; SHOTS[3].col=cross.col; console.log('Saved HERE to', SHOTS[3]); }
-  }
+  // move box (which moves origin)
+  if (k==='w' || k==='W'){ TONGUE_ROW = Math.max(0, TONGUE_ROW - step); changed=true; }
+  if (k==='s' || k==='S'){ TONGUE_ROW += step; changed=true; }
+  if (k==='a' || k==='A'){ TONGUE_COL = Math.max(0, TONGUE_COL - step); changed=true; }
+  if (k==='d' || k==='D'){ TONGUE_COL += step; changed=true; }
 
-  // Log the current tongue tip coordinates
-  if (k.toLowerCase()==='k') logTip();
+  // rotate tongue
+  if (k === ';'){ TONGUE_ROT_DEG = (TONGUE_ROT_DEG - 1 + 360) % 360; changed=true; }
+  if (k === "'"){ TONGUE_ROT_DEG = (TONGUE_ROT_DEG + 1) % 360; changed=true; }
+
+  // length
+  if (k === '['){ TONGUE_LEN = Math.max(1, TONGUE_LEN - (fast?10:5)); changed=true; }
+  if (k === ']'){ TONGUE_LEN = TONGUE_LEN + (fast?10:5); changed=true; }
+
+  // guide toggle
+  if (k==='g' || k==='G'){ showGuide=!showGuide; changed=true; }
+
+  // log
+  if (k==='l' || k==='L'){ logTongue(); }
+
+  if (changed){ render(); fit(); }
 });
 
-/* ===== Kick off & fit ===== */
+/* Kick off */
 fit();
+render();
 </script>
