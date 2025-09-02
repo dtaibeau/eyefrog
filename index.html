@@ -1,3 +1,28 @@
-<!doctype html><meta charset="utf-8">
-<title>test</title>
-HELLO EYEFROG
+<!doctype html>
+<meta charset="utf-8">
+<title>eyefrog test</title>
+<style>
+  body { background:#000; color:#0f0; font-family:monospace; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
+  pre { font-size:16px; line-height:1.2; }
+</style>
+<pre id="screen">loading… (you should at least see this)</pre>
+<script>
+  try {
+    const frames = [
+`   (o)--(o)
+  /   ____  \\
+  \\__/    \\__/
+    eyefrog!`,
+`   (o)~~(o)
+  /   __   \\
+  \\__/    \\__/
+   ~ribbit~`
+    ];
+    let i = 0;
+    setInterval(() => {
+      document.getElementById('screen').textContent = frames[i++ % frames.length];
+    }, 500);
+  } catch (e) {
+    document.getElementById('screen').textContent = 'JS error: ' + e.message;
+  }
+</script>
