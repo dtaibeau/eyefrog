@@ -1,39 +1,33 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>eyefrog — locked mouth + logger</title>
+<title>eyefrog</title>
 <style>
-  html,body{height:100%}
   body{
-    margin:0; background:#000; color:#7CFF8B;
-    display:flex; align-items:left; justify-content:left;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    background:#000;
+    color:#0f0;
+    font-family:monospace;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    height:100vh;
+    margin:0;
   }
-  .stage{position:relative; width:100vw; height:100vh; overflow:hidden}
-  pre{
-    margin:0; white-space:pre; tab-size:2;
-    line-height:1; letter-spacing:0; font-size:16px;  /* design size; auto-scaled */
-    transform-origin: top left; position:absolute; top:0; left:0; user-select:none;
-  }
-  #base   { color:#19f06d; text-shadow:0 0 6px #093; }
-  #overlay{ color:#b7ffcf; text-shadow:0 0 10px #0f5; }
+  pre#screen{ font-size:3px; line-height:1; margin:0; }
   #hud{
-    position:fixed; left:10px; bottom:10px; right:10px;
-    font:12px/1.2 ui-monospace,monospace; color:#9fe9b3; opacity:.75
+    position:fixed; left:6px; bottom:6px; color:#0f0; font-size:12px;
+    font-family:monospace; user-select:none; opacity:.85;
   }
 </style>
 
-<div class="stage">
-  <pre id="base"></pre>
-  <pre id="overlay"></pre>
-</div>
-<div id="hud">
-  G guide • L log config • P pause • +/- speed<br/>
-  (Mouth is locked. Edit config at top if you want to reposition.)
-</div>
+<pre id="screen">loading…</pre>
+<div id="hud"></div>
 
 <script>
-/* ===== 1) PASTE YOUR BIG ASCII HERE ===== */
-const ART = `
+/* =========================
+   0) Your frog ASCII (background)
+   Paste the frog ASCII between the backticks below.
+   ========================= */
+const frogArt = `
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
@@ -273,279 +267,219 @@ const ART = `
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                                                                                                                                                            
-`.trimEnd();
+                                                                                                                                                                                                                                                                                                                                                                                                
+`;
 
-/* ===== 2) Mouth + targets configuration ===== */
+/* =========================
+   1) Global “shift left 50px”
+   (applies to overlay coordinates you set below)
+   ========================= */
+const X_SHIFT = -50;  // negative = move left, positive = right
 
-/* ===== 2) Mouth + targets configuration ===== */
+/* =========================
+   2) Mouth configuration (you can overwrite with your saved values)
+   ========================= */
 let MOUTH_ROW = 44;
-let MOUTH_COL = 70;
+let MOUTH_COL = 70 + X_SHIFT;   // 70 shifted left by 50
 let MOUTH_W   = 252;
 let MOUTH_H   = 12;
 let MOUTH_ROT_DEG = -16;
 
-let ANGLE_DEG = 0;
+/* If true, the oval grows from the TOP-LEFT corner (diagonal).
+   If false, it opens TOP → BOTTOM (width fixed, height grows). */
+const OPEN_FROM_CORNER = true;
 
-const SHOTS   = 4;
-const SPACING = 7;
-const START_AT_LEFT = true;
+/* Locking/guide/fps */
+let LOCK_MOUTH = true;  // set false to adjust with keys (if you wire keys later)
+let showGuide  = true;  // + markers — toggle with G
+let paused     = false;
+let fps        = 8;
 
-const LOCK_MOUTH = true;  // lock in place
-let showGuide = false;    // hide guide on load
+/* Optional targets to see alignment (also shifted left) */
+const targets = [
+  { row: 60, col: 120 + X_SHIFT, label: 't1' },
+  { row: 60, col: 127 + X_SHIFT, label: 't2' },
+  { row: 60, col: 134 + X_SHIFT, label: 't3' },
+  { row: 60, col: 141 + X_SHIFT, label: 't4' },
+];
 
-/* ===== Console logger ===== */
-function logMouthConfig(){
-  console.log("MOUTH_ROW =", MOUTH_ROW);
-  console.log("MOUTH_COL =", MOUTH_COL);
-  console.log("MOUTH_W   =", MOUTH_W);
-  console.log("MOUTH_H   =", MOUTH_H);
-  console.log("MOUTH_ROT_DEG =", MOUTH_ROT_DEG);
+/* =========================
+   3) Persist mouth (load / save)
+   ========================= */
+(function loadSavedMouth(){
+  const m = JSON.parse(localStorage.getItem('eyefrogMouth') || 'null');
+  if (m){
+    MOUTH_ROW = m.row;
+    MOUTH_COL = m.col;
+    MOUTH_W   = m.w;
+    MOUTH_H   = m.h;
+    MOUTH_ROT_DEG = m.rot;
+    LOCK_MOUTH = true;
+    console.log('Loaded mouth:', m);
+  }
+})();
+
+function saveMouth(){
+  const payload = {
+    row: MOUTH_ROW, col: MOUTH_COL,
+    w: MOUTH_W,    h: MOUTH_H,
+    rot: MOUTH_ROT_DEG
+  };
+  localStorage.setItem('eyefrogMouth', JSON.stringify(payload));
+  console.log('Saved mouth:', payload);
 }
-logMouthConfig();
 
-/* ===== 3) Animation timing ===== */
-let FPS = 30;
-const OPEN_STEPS   = 8;   // frames to open/close
-const EXT_SPEED    = 3;   // chars/frame (extend)
-const RET_SPEED    = 4;   // chars/frame (retract)
-const MAX_LEN      = 120; // max tongue length
-const HOLD_FRAMES  = 8;   // pause at full extension
-const SEG = '='; const TIP = '»';
+/* =========================
+   4) Helpers: text → grid, write, bake
+   ========================= */
+function toGrid(str){
+  return str.replace(/\r/g,'').split('\n').map(line => line.split(''));
+}
+function ensureCol(rowArr, col){
+  while (col >= rowArr.length) rowArr.push(' ');
+}
+function writeChar(grid, r, c, ch){
+  if (r < 0) return;
+  if (r >= grid.length) {
+    for (let i = grid.length; i <= r; i++) grid.push([]);
+  }
+  ensureCol(grid[r], c);
+  grid[r][c] = ch;
+}
+function bake(grid){
+  return grid.map(row => row.join('')).join('\n');
+}
 
-const baseEl = document.getElementById('base');
-const ovEl   = document.getElementById('overlay');
-const lines0 = ART.split('\n');
+/* =========================
+   5) Mouth carving (erases ASCII inside an oval)
+   ========================= */
+function carveMouthInto(baseText, open01){
+  const lines = toGrid(baseText);
 
-/* ---------- rotated-oval mouth, grows from UPPER-LEFT corner ---------- */
-// Rotated OVAL mouth that opens TOP → BOTTOM (width fixed, height grows)
-function carveMouth(srcLines, open01){
-  const W = Math.max(1, MOUTH_W);                     // full width stays constant
-  const H = Math.max(1, Math.round(MOUTH_H * open01)); // opening height grows downward
+  if (OPEN_FROM_CORNER){
+    // Corner-anchored growth: top-left stays fixed at MOUTH_ROW/COL
+    const Wcur = Math.max(1, Math.round(MOUTH_W * open01));
+    const Hcur = Math.max(1, Math.round(MOUTH_H * open01));
 
-  const lines = srcLines.map(s => s.split(''));
+    const cx = MOUTH_COL + Math.floor(Wcur / 2);
+    const cy = MOUTH_ROW + Math.floor(Hcur / 2);
 
-  // Use the FULL box center so the mouth looks like a jaw dropping
-  const cx = MOUTH_COL + Math.floor(W / 2);
-  const cy = MOUTH_ROW + Math.floor(MOUTH_H / 2);
+    const a  = Math.max(0.5, Wcur / 2);
+    const b  = Math.max(0.5, Hcur / 2);
 
-  const a  = W / 2;                 // horizontal radius (fixed)
-  const b  = Math.max(0.5, H / 2);  // vertical radius scales with open
+    const th = (MOUTH_ROT_DEG * Math.PI) / 180;
+    const cos = Math.cos(th), sin = Math.sin(th);
 
-  const th = (MOUTH_ROT_DEG * Math.PI)/180;
-  const cos = Math.cos(th), sin = Math.sin(th);
+    for (let r = 0; r < Hcur; r++){
+      const rr = MOUTH_ROW + r;
+      if (rr < 0) continue;
+      if (rr >= lines.length) lines.push([]);
 
-  // Only scan the currently-open vertical slice starting at the TOP edge
-  for (let r = 0; r < H; r++){
-    const rr = MOUTH_ROW + r;                 // rows from the top edge downward
-    if (rr < 0 || rr >= lines.length) continue;
+      for (let c = 0; c < Wcur; c++){
+        const cc = MOUTH_COL + c;
+        if (cc < 0) continue;
+        ensureCol(lines[rr], cc);
 
-    for (let c = 0; c < W; c++){
-      const cc = MOUTH_COL + c;               // full width each frame
-      if (cc < 0) continue;
-      while (cc >= lines[rr].length) lines[rr].push(' ');
+        const dx = cc - cx, dy = rr - cy;
+        const xr =  dx * cos + dy * sin;
+        const yr = -dx * sin + dy * cos;
 
-      // rotate point by -theta (ellipse rotated by +theta)
-      const dx = cc - cx, dy = rr - cy;
-      const xr =  dx * cos + dy * sin;
-      const yr = -dx * sin + dy * cos;
-
-      if ((xr*xr)/(a*a) + (yr*yr)/(b*b) <= 1) {
-        lines[rr][cc] = ' '; // clear inside the tilted oval
+        if ((xr*xr)/(a*a) + (yr*yr)/(b*b) <= 1){
+          lines[rr][cc] = ' '; // erase inside the oval
+        }
       }
     }
-  }
-  return lines.map(a=>a.join('')).join('\n');
-}
+    return bake(lines);
+  } else {
+    // Top→bottom growth: width fixed, height grows downward
+    const W = Math.max(1, MOUTH_W);
+    const H = Math.max(1, Math.round(MOUTH_H * open01));
 
+    const cx = MOUTH_COL + Math.floor(W / 2);
+    // use center of the full (max) box so it looks like a jaw drop
+    const cy = MOUTH_ROW + Math.floor(MOUTH_H / 2);
 
-/* ---------- tongue drawing ---------- */
-function drawTongue(len, row0, col0, angleDeg){
-  if (len<=0) return '';
-  const rad = angleDeg * Math.PI/180, dx = Math.cos(rad), dy = Math.sin(rad);
-  const rows = new Map();
-  const put = (r,c,ch)=>{
-    r = Math.round(r); c = Math.max(0, Math.round(c));
-    if (r<0) return; const a = rows.get(r)||[]; a.push([c,ch]); rows.set(r,a);
-  };
-  for (let i=0;i<Math.max(0,len-1);i++) put(row0+dy*i, col0+dx*i, SEG);
-  put(row0+dy*(len-1), col0+dx*(len-1), TIP);
+    const a  = W / 2;
+    const b  = Math.max(0.5, H / 2);
 
-  const maxR = Math.max(...rows.keys(), 0);
-  const out = [];
-  for (let r=0;r<=maxR;r++){
-    const a = rows.get(r); if (!a){ out.push(''); continue; }
-    a.sort((x,y)=>x[0]-y[0]);
-    let s='', last=-1;
-    for (const [col,ch] of a){ if (col>last+1) s+=' '.repeat(col-(last+1)); s+=ch; last=col; }
-    out[r]=s;
-  }
-  return '\n'.repeat(Math.max(0,row0)) + out.join('\n');
-}
+    const th = (MOUTH_ROT_DEG * Math.PI)/180;
+    const cos = Math.cos(th), sin = Math.sin(th);
 
-/* ---------- rotated-oval guide + target dots ---------- */
-function guideOverlay(targets) {
-  const rows = new Map();
-  const put = (r,c,ch)=>{
-    r = Math.round(r); c = Math.max(0, Math.round(c));
-    if (r < 0) return; const a = rows.get(r) || []; a.push([c, ch]); rows.set(r, a);
-  };
+    for (let r = 0; r < H; r++){
+      const rr = MOUTH_ROW + r;
+      if (rr < 0) continue;
+      if (rr >= lines.length) lines.push([]);
 
-  const cx = MOUTH_COL + Math.floor(MOUTH_W/2);
-  const cy = MOUTH_ROW + Math.floor(MOUTH_H/2);
-  const a  = MOUTH_W/2, b = MOUTH_H/2;
+      for (let c = 0; c < W; c++){
+        const cc = MOUTH_COL + c;
+        if (cc < 0) continue;
+        ensureCol(lines[rr], cc);
 
-  const th = (MOUTH_ROT_DEG * Math.PI) / 180, cos = Math.cos(th), sin = Math.sin(th);
+        const dx = cc - cx, dy = rr - cy;
+        const xr =  dx * cos + dy * sin;
+        const yr = -dx * sin + dy * cos;
 
-  // outline band
-  for (let r = MOUTH_ROW; r < MOUTH_ROW + MOUTH_H; r++){
-    for (let c = MOUTH_COL; c < MOUTH_COL + MOUTH_W; c++){
-      const dx = c - cx, dy = r - cy;
-      const xr =  dx * cos + dy * sin;
-      const yr = -dx * sin + dy * cos;
-      const v = (xr * xr) / (a * a) + (yr * yr) / (b * b);
-      if (v > 0.97 && v < 1.03) put(r, c, '·');
-    }
-  }
-
-  // target dots
-  for (const t of targets) put(t.row, t.col, '•');
-
-  const maxR = Math.max(...rows.keys(), 0), out = [];
-  for (let r = 0; r <= maxR; r++){
-    const arow = rows.get(r);
-    if (!arow){ out.push(''); continue; }
-    arow.sort((x,y)=>x[0]-y[0]);
-    let s='', last=-1;
-    for (const [col,ch] of arow){
-      if (col>last+1) s += ' '.repeat(col-(last+1));
-      s += ch; last=col;
-    }
-    out[r]=s;
-  }
-  return '\n'.repeat(Math.max(0, Math.min(MOUTH_ROW, out.length ? MOUTH_ROW : 0))) + out.join('\n');
-}
-
-/* ---------- viewport fit ---------- */
-function fit(){
-  baseEl.style.transform = ovEl.style.transform = 'scale(1)';
-  requestAnimationFrame(()=>{
-    baseEl.textContent = carveMouth(lines0, open01);
-    const pad=12, maxW=innerWidth-pad, maxH=innerHeight-pad;
-    const w=baseEl.scrollWidth, h=baseEl.scrollHeight;
-    const scale = Math.min(maxW/w, maxH/h, 1);
-    const offX = Math.max((maxW - w*scale)/2, 0);
-    const offY = Math.max((maxH - h*scale)/2, 0);
-    const t = `translate(${offX}px, ${offY}px) scale(${scale})`;
-    baseEl.style.transform=t; ovEl.style.transform=t;
-  });
-}
-addEventListener('resize', fit);
-
-/* ---------- targets ---------- */
-function originForShot(){
-  return {
-    row: MOUTH_ROW + Math.floor(MOUTH_H / 2),
-    col: MOUTH_COL + Math.floor(MOUTH_W / 2)
-  };
-}
-function buildTargets(){
-  const o = originForShot();
-  const arr = [];
-  for (let i=0;i<SHOTS;i++){
-    const col = START_AT_LEFT ? o.col + (i + 1)*SPACING : o.col - (i + 1)*SPACING;
-    arr.push({ row: o.row, col });
-  }
-  return arr;
-}
-function targetAngle(target){
-  const o = originForShot();
-  const dy = target.row - o.row, dx = target.col - o.col;
-  return Math.atan2(dy, dx) * 180/Math.PI;
-}
-let targets = buildTargets();
-
-/* ---------- state machine ---------- */
-let phase='open', frame=0, open01=0, L=0, shotIdx=0;
-
-function step(){
-  const o = originForShot();
-  const target = targets[shotIdx] || targets[targets.length-1];
-  const angle = ANGLE_DEG !== 0 ? ANGLE_DEG : targetAngle(target);
-
-  switch(phase){
-    case 'open':
-      open01 = Math.min(1, (frame+1)/OPEN_STEPS);
-      if (open01>=1){ phase='extend'; frame=-1; }
-      break;
-    case 'extend': {
-      const dx = Math.abs(target.col - o.col), dy = Math.abs(target.row - o.row);
-      const need = Math.min(MAX_LEN, Math.round(Math.hypot(dx,dy)));
-      L = Math.min(need, L + EXT_SPEED);
-      if (L>=need){ L=need; phase='hold'; frame=-1; }
-      break;
-    }
-    case 'hold':
-      if (frame>=HOLD_FRAMES){ phase='retract'; frame=-1; }
-      break;
-    case 'retract':
-      L = Math.max(0, L - RET_SPEED);
-      if (L<=0){
-        shotIdx++;
-        if (shotIdx >= targets.length){ phase='close'; } else { phase='extend'; }
-        frame=-1;
+        if ((xr*xr)/(a*a) + (yr*yr)/(b*b) <= 1){
+          lines[rr][cc] = ' ';
+        }
       }
-      break;
-    case 'close':
-      open01 = Math.max(0, 1 - (frame+1)/OPEN_STEPS);
-      if (open01<=0){ phase='open'; frame=-1; shotIdx=0; } // loop
-      break;
+    }
+    return bake(lines);
   }
-  frame++;
-
-  baseEl.textContent = carveMouth(lines0, open01);
-  ovEl.textContent   = drawTongue(L, o.row, o.col, angle)
-                     + (showGuide ? guideOverlay(targets) : '');
 }
 
-baseEl.textContent = ART;
-let timer = setInterval(step, 1000/FPS);
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden){ clearInterval(timer); timer=null; }
-  else if (!timer){ timer=setInterval(step, 1000/FPS); }
+/* =========================
+   6) Guide overlay (+ markers)
+   ========================= */
+function overlayGuide(baseText){
+  if (!showGuide) return baseText;
+  const g = toGrid(baseText);
+  for (const t of targets){
+    writeChar(g, t.row, Math.max(0,t.col), '+');
+  }
+  return bake(g);
+}
+
+/* =========================
+   7) Animation loop
+   ========================= */
+const screen = document.getElementById('screen');
+let tickN = 0;
+
+function frame(){
+  if (!paused){
+    const open01 = (Math.sin(tickN/5)+1)/2; // 0..1
+    let composed = frogArt;
+    composed = carveMouthInto(composed, open01); // erase mouth area each frame
+    composed = overlayGuide(composed);
+    screen.textContent = composed;
+    tickN++;
+  }
+}
+setInterval(frame, 1000/Math.max(1,fps));
+
+/* =========================
+   8) Shortcuts / HUD
+   ========================= */
+document.addEventListener('keydown', e=>{
+  if (e.key === 'p') paused = !paused;
+  if (e.key === 'g') showGuide = !showGuide;
+
+  if (e.key === 'l'){ // log mouth
+    console.log('MOUTH_ROW =', MOUTH_ROW);
+    console.log('MOUTH_COL =', MOUTH_COL);
+    console.log('MOUTH_W   =', MOUTH_W);
+    console.log('MOUTH_H   =', MOUTH_H);
+    console.log('MOUTH_ROT_DEG =', MOUTH_ROT_DEG);
+  }
+  if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase() === 's'){
+    e.preventDefault();
+    saveMouth();
+  }
+  if (e.key === '+'){ fps = Math.min(60, fps+1); }
+  if (e.key === '-'){ fps = Math.max(1, fps-1); }
 });
 
-/* ---------- hotkeys ---------- */
-addEventListener('keydown',(e)=>{
-  // L = log current values anytime
-  if (e.key.toLowerCase() === 'l') { logMouthConfig(); }
-
-  // Mouth move/resize/tilt are ignored when locked
-  if (!LOCK_MOUTH) {
-    if (e.key==='ArrowUp')   { MOUTH_ROW--;  targets=buildTargets(); fit(); }
-    if (e.key==='ArrowDown') { MOUTH_ROW++;  targets=buildTargets(); fit(); }
-    if (e.key==='ArrowLeft') { MOUTH_COL--;  targets=buildTargets(); fit(); }
-    if (e.key==='ArrowRight'){ MOUTH_COL++;  targets=buildTargets(); fit(); }
-
-    if (e.key==='[') { MOUTH_W=Math.max(1,MOUTH_W-1); targets=buildTargets(); fit(); }
-    if (e.key===']') { MOUTH_W+=1;                      targets=buildTargets(); fit(); }
-    if (e.key==='{') { MOUTH_H=Math.max(1,MOUTH_H-1);   targets=buildTargets(); fit(); }
-    if (e.key==='}') { MOUTH_H+=1;                      targets=buildTargets(); fit(); }
-
-    if (e.key===',') { MOUTH_ROT_DEG = Math.max(-45, MOUTH_ROT_DEG - 1); fit(); }
-    if (e.key=== '.') { MOUTH_ROT_DEG = Math.min( 45, MOUTH_ROT_DEG + 1); fit(); }
-  }
-
-  if (e.key==='+' || e.key==='='){ FPS=Math.min(120,FPS+5); restart(); }
-  if (e.key==='-' || e.key==='_'){ FPS=Math.max(5,FPS-5);  restart(); }
-
-  if (e.key.toLowerCase()==='g'){ showGuide=!showGuide; }
-  if (e.key.toLowerCase()==='p'){
-    if (timer){ clearInterval(timer); timer=null; } else restart();
-  }
-});
-function restart(){ clearInterval(timer); timer=setInterval(step, 1000/FPS); }
-
-/* kick things off */
-fit();
+document.getElementById('hud').innerHTML =
+  'G guide • L log • P pause • +/- fps • ⌘/Ctrl+S save';
 </script>
