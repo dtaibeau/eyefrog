@@ -318,41 +318,46 @@ const ovEl   = document.getElementById('overlay');
 const lines0 = ART.split('\n');
 
 /* ---------- rotated-oval mouth, grows from UPPER-LEFT corner ---------- */
+// Rotated OVAL mouth that opens TOP → BOTTOM (width fixed, height grows)
 function carveMouth(srcLines, open01){
-  const Wcur = Math.max(1, Math.round(MOUTH_W * open01));
-  const Hcur = Math.max(1, Math.round(MOUTH_H * open01));
+  const W = Math.max(1, MOUTH_W);                     // full width stays constant
+  const H = Math.max(1, Math.round(MOUTH_H * open01)); // opening height grows downward
 
   const lines = srcLines.map(s => s.split(''));
-  const cx = MOUTH_COL + Math.floor(Wcur / 2);
-  const cy = MOUTH_ROW + Math.floor(Hcur / 2);
 
-  const a  = Math.max(0.5, Wcur / 2);
-  const b  = Math.max(0.5, Hcur / 2);
+  // Use the FULL box center so the mouth looks like a jaw dropping
+  const cx = MOUTH_COL + Math.floor(W / 2);
+  const cy = MOUTH_ROW + Math.floor(MOUTH_H / 2);
 
-  const th = (MOUTH_ROT_DEG * Math.PI) / 180;
+  const a  = W / 2;                 // horizontal radius (fixed)
+  const b  = Math.max(0.5, H / 2);  // vertical radius scales with open
+
+  const th = (MOUTH_ROT_DEG * Math.PI)/180;
   const cos = Math.cos(th), sin = Math.sin(th);
 
-  for (let r = 0; r < Hcur; r++){
-    const rr = MOUTH_ROW + r;
+  // Only scan the currently-open vertical slice starting at the TOP edge
+  for (let r = 0; r < H; r++){
+    const rr = MOUTH_ROW + r;                 // rows from the top edge downward
     if (rr < 0 || rr >= lines.length) continue;
 
-    for (let c = 0; c < Wcur; c++){
-      const cc = MOUTH_COL + c;
+    for (let c = 0; c < W; c++){
+      const cc = MOUTH_COL + c;               // full width each frame
       if (cc < 0) continue;
       while (cc >= lines[rr].length) lines[rr].push(' ');
 
-      const dx = cc - cx;
-      const dy = rr - cy;
+      // rotate point by -theta (ellipse rotated by +theta)
+      const dx = cc - cx, dy = rr - cy;
       const xr =  dx * cos + dy * sin;
       const yr = -dx * sin + dy * cos;
 
-      if ((xr * xr) / (a * a) + (yr * yr) / (b * b) <= 1) {
-        lines[rr][cc] = ' ';
+      if ((xr*xr)/(a*a) + (yr*yr)/(b*b) <= 1) {
+        lines[rr][cc] = ' '; // clear inside the tilted oval
       }
     }
   }
-  return lines.map(a => a.join('')).join('\n');
+  return lines.map(a=>a.join('')).join('\n');
 }
+
 
 /* ---------- tongue drawing ---------- */
 function drawTongue(len, row0, col0, angleDeg){
