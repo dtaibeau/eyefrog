@@ -1,15 +1,36 @@
 <!doctype html>
-<meta charset="utf-8">
-<title>eyefrog.com</title>
+<meta charset="utf-8" />
+<title>eyefrog — tongue</title>
 <style>
-  body { background:#000; color:#0f0; font-family:monospace; display:flex; align-items:left; justify-content:center; height:100vh; margin:0; }
-  pre { font-size:5px; line-height:0.8; }
+  html,body{height:100%}
+  body{
+    margin:0; background:#000; color:#00ff66;
+    display:flex; align-items:center; justify-content:center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  .stage{position:relative; width:100vw; height:100vh; overflow:hidden}
+  pre{
+    margin:0; white-space:pre; tab-size:2;
+    line-height:1;            /* tighter rows for dense ASCII */
+    letter-spacing:0;
+    font-size:16px;           /* design size; we scale down to fit */
+    transform-origin: top left;
+    position:absolute; top:0; left:0;
+    user-select:none;
+  }
+  #art   { color:#1aff66; text-shadow:0 0 6px #0a2; }
+  #tongue{ color:#66ff99; text-shadow:0 0 8px #0f5; }
 </style>
-<pre id="screen">loading…</pre>
+
+<div class="stage">
+  <pre id="art"></pre>
+  <pre id="tongue"></pre>
+</div>
+
 <script>
-  try {
-    const frames = [
-`                                                                                                                                                                                                                                                                                                                                                                                                                  
+  // 1) PASTE your giant ASCII here
+  const ART = `
+                                                                                                                                                                                                                                                                                                                                                                                                                
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
@@ -248,14 +269,89 @@
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                                                                                                                                                                ++++++++++++++++                                            
-                                                                       `
-    ];
-    let i = 0;
-    setInterval(() => {
-      document.getElementById('screen').textContent = frames[i++ % frames.length];
-    }, 500);
-  } catch (e) {
-    document.getElementById('screen').textContent = 'JS error: ' + e.message;
+                                                                                                                                                                                                                                                                                                                                                                                            
+`.trimEnd();
+
+  // 2) Set the mouth origin (row, col) in character coordinates.
+  //    Start with a guess; nudge until it lines up.
+  let MOUTH_ROW = 35;  // <-- tweak
+  let MOUTH_COL = 22;  // <-- tweak
+
+  // 3) Animation params
+  const FPS = 30;
+  const MAX_TONGUE = 120;     // max length (chars) before it retracts
+  const HEAD = '»';           // tip character (could be '•' or '🪰' for the target)
+  const SEG  = '=';           // body character
+  const PAUSE = 10;           // frames to pause at full extension
+
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const artEl    = document.getElementById('art');
+  const tongueEl = document.getElementById('tongue');
+
+  // init art
+  artEl.textContent = ART;
+
+  // --- Fit both layers to viewport using the same transform
+  function fit() {
+    // reset to measure natural size
+    artEl.style.transform = tongueEl.style.transform = 'scale(1) translate(0,0)';
+    requestAnimationFrame(() => {
+      const pad = 12;
+      const maxW = innerWidth  - pad;
+      const maxH = innerHeight - pad;
+      const w = artEl.scrollWidth;
+      const h = artEl.scrollHeight;
+      let scale = Math.min(maxW / w, maxH / h, 1);
+      const scaledW = w * scale, scaledH = h * scale;
+      const offX = Math.max((maxW - scaledW) / 2, 0);
+      const offY = Math.max((maxH - scaledH) / 2, 0);
+      const t = `translate(${offX}px, ${offY}px) scale(${scale})`;
+      artEl.style.transform = t;
+      tongueEl.style.transform = t;
+    });
   }
+  addEventListener('resize', fit);
+  fit();
+
+  // --- Build tongue text at given length by padding with rows/cols
+  // NOTE: the tongue is just spaces/newlines until the mouth point,
+  //       then a run of '=' plus a head char.
+  function tongueFrame(len) {
+    if (len <= 0) return '';
+    const rowsPad = '\n'.repeat(MOUTH_ROW);
+    const colsPad = ' '.repeat(MOUTH_COL);
+    return rowsPad + colsPad + SEG.repeat(Math.max(len - 1, 0)) + HEAD;
+  }
+
+  // --- Animate extend → pause → retract
+  let len = 0, dir = 1, pause = 0;
+  function tick() {
+    if (reduce) { tongueEl.textContent = ''; return; }
+
+    if (dir > 0) { // extending
+      len += 2; // speed (chars per frame)
+      if (len >= MAX_TONGUE) { len = MAX_TONGUE; dir = 0; pause = PAUSE; }
+    } else if (dir < 0) { // retracting
+      len -= 3;
+      if (len <= 0) { len = 0; dir = 1; }
+    } else { // paused
+      if (--pause <= 0) dir = -1;
+    }
+
+    tongueEl.textContent = tongueFrame(len);
+  }
+
+  let timer = setInterval(tick, 1000 / FPS);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { clearInterval(timer); timer = null; }
+    else if (!timer) { timer = setInterval(tick, 1000 / FPS); }
+  });
+
+  // ---- Quick helpers to nudge mouth live with arrow keys (optional)
+  addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp')    { MOUTH_ROW = Math.max(0, MOUTH_ROW - 1); e.preventDefault(); }
+    if (e.key === 'ArrowDown')  { MOUTH_ROW += 1; e.preventDefault(); }
+    if (e.key === 'ArrowLeft')  { MOUTH_COL = Math.max(0, MOUTH_COL - 1); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { MOUTH_COL += 1; e.preventDefault(); }
+  });
 </script>
