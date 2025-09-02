@@ -1,35 +1,36 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>eyefrog — tongue</title>
+<title>eyefrog — ASCII mouth + tongue (4 shots)</title>
 <style>
   html,body{height:100%}
   body{
-    margin:0; background:#000; color:#00ff66;
-    display:flex; align-items:left; justify-content:left;
+    margin:0; background:#000; color:#7CFF8B;
+    display:flex; align-items:center; justify-content:center;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   }
   .stage{position:relative; width:100vw; height:100vh; overflow:hidden}
   pre{
     margin:0; white-space:pre; tab-size:2;
-    line-height:1;            /* tighter rows for dense ASCII */
-    letter-spacing:0;
-    font-size:16px;           /* design size; we scale down to fit */
-    transform-origin: top left;
-    position:absolute; top:0; left:0;
-    user-select:none;
+    line-height:1; letter-spacing:0; font-size:16px;  /* design size; we scale down */
+    transform-origin: top left; position:absolute; top:0; left:0; user-select:none;
   }
-  #art   { color:#1aff66; text-shadow:0 0 6px #0a2; }
-  #tongue{ color:#66ff99; text-shadow:0 0 8px #0f5; }
+  #base   { color:#19f06d; text-shadow:0 0 6px #093; }
+  #overlay{ color:#b7ffcf; text-shadow:0 0 10px #0f5; }
+  #hud{position:fixed; left:10px; bottom:10px; font:12px/1.2 ui-monospace,monospace; color:#9fe9b3; opacity:.75}
 </style>
 
 <div class="stage">
-  <pre id="art"></pre>
-  <pre id="tongue"></pre>
+  <pre id="base"></pre>
+  <pre id="overlay"></pre>
+</div>
+<div id="hud">
+  Arrows: move mouth • [ ] width • { } height • , . angle • +/- speed • P pause<br/>
+  Edit constants at top to set spacing/targets if you want exact coords
 </div>
 
 <script>
-  // 1) PASTE your giant ASCII here
-  const ART = `
+/* ===== 1) PASTE YOUR BIG ASCII HERE ===== */
+const ART = `
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
@@ -269,89 +270,178 @@
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                                                                                                                                                            
+                                                                                                                                                                                                                                                                                                                                                                                                ++++++++++++++++
 `.trimEnd();
 
-  // 2) Set the mouth origin (row, col) in character coordinates.
-  //    Start with a guess; nudge until it lines up.
-  let MOUTH_ROW = 35;  // <-- tweak
-  let MOUTH_COL = 22;  // <-- tweak
+/* ===== 2) Configure mouth + targets ===== */
+let MOUTH_ROW = 75;     // top-left of mouth "box" (characters)
+let MOUTH_COL = 68;
+let MOUTH_W   = 10;     // box width (chars)
+let MOUTH_H   = 5;      // box height
+let ANGLE_DEG = 0;      // 0 = straight right; use +/- with , and . to tilt
+const SHOTS   = 4;      // number of shots
+const SPACING = 7;      // spacing (chars) along same row
+const START_AT_LEFT = true;  // if false, starts to the right and goes left
 
-  // 3) Animation params
-  const FPS = 30;
-  const MAX_TONGUE = 120;     // max length (chars) before it retracts
-  const HEAD = '»';           // tip character (could be '•' or '🪰' for the target)
-  const SEG  = '=';           // body character
-  const PAUSE = 10;           // frames to pause at full extension
+/* ===== 3) Animation timing ===== */
+let FPS = 30;
+const OPEN_STEPS   = 8;   // frames to open/close
+const EXT_SPEED    = 3;   // chars per frame (extend)
+const RET_SPEED    = 4;   // chars per frame (retract)
+const MAX_LEN      = 120; // clamp if targets are far
+const HOLD_FRAMES  = 8;   // pause at full extension
+const SEG = '='; const TIP = '»';
 
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const artEl    = document.getElementById('art');
-  const tongueEl = document.getElementById('tongue');
+const baseEl = document.getElementById('base');
+const ovEl   = document.getElementById('overlay');
+const lines0 = ART.split('\n');
 
-  // init art
-  artEl.textContent = ART;
-
-  // --- Fit both layers to viewport using the same transform
-  function fit() {
-    // reset to measure natural size
-    artEl.style.transform = tongueEl.style.transform = 'scale(1) translate(0,0)';
-    requestAnimationFrame(() => {
-      const pad = 12;
-      const maxW = innerWidth  - pad;
-      const maxH = innerHeight - pad;
-      const w = artEl.scrollWidth;
-      const h = artEl.scrollHeight;
-      let scale = Math.min(maxW / w, maxH / h, 1);
-      const scaledW = w * scale, scaledH = h * scale;
-      const offX = Math.max((maxW - scaledW) / 2, 0);
-      const offY = Math.max((maxH - scaledH) / 2, 0);
-      const t = `translate(${offX}px, ${offY}px) scale(${scale})`;
-      artEl.style.transform = t;
-      tongueEl.style.transform = t;
-    });
-  }
-  addEventListener('resize', fit);
-  fit();
-
-  // --- Build tongue text at given length by padding with rows/cols
-  // NOTE: the tongue is just spaces/newlines until the mouth point,
-  //       then a run of '=' plus a head char.
-  function tongueFrame(len) {
-    if (len <= 0) return '';
-    const rowsPad = '\n'.repeat(MOUTH_ROW);
-    const colsPad = ' '.repeat(MOUTH_COL);
-    return rowsPad + colsPad + SEG.repeat(Math.max(len - 1, 0)) + HEAD;
-  }
-
-  // --- Animate extend → pause → retract
-  let len = 0, dir = 1, pause = 0;
-  function tick() {
-    if (reduce) { tongueEl.textContent = ''; return; }
-
-    if (dir > 0) { // extending
-      len += 2; // speed (chars per frame)
-      if (len >= MAX_TONGUE) { len = MAX_TONGUE; dir = 0; pause = PAUSE; }
-    } else if (dir < 0) { // retracting
-      len -= 3;
-      if (len <= 0) { len = 0; dir = 1; }
-    } else { // paused
-      if (--pause <= 0) dir = -1;
+/* --- helpers: carve mouth (open01 0..1) --- */
+function carveMouth(srcLines, open01){
+  const L = srcLines.map(s => s.split(''));
+  const h = Math.max(1, Math.round(MOUTH_H * open01));
+  const w = Math.max(1, Math.round(MOUTH_W * open01));
+  for (let r=0;r<h;r++){
+    const rr = MOUTH_ROW + r; if (rr<0 || rr>=L.length) continue;
+    for (let c=0;c<w;c++){
+      const cc = MOUTH_COL + c; if (cc<0) continue;
+      while (cc >= L[rr].length) L[rr].push(' ');
+      L[rr][cc] = ' ';
     }
-
-    tongueEl.textContent = tongueFrame(len);
   }
+  return L.map(a=>a.join('')).join('\n');
+}
 
-  let timer = setInterval(tick, 1000 / FPS);
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { clearInterval(timer); timer = null; }
-    else if (!timer) { timer = setInterval(tick, 1000 / FPS); }
-  });
+/* --- tongue path: straight line along angle from origin --- */
+function drawTongue(len, row0, col0, angleDeg){
+  if (len<=0) return '';
+  const rad = angleDeg * Math.PI/180, dx = Math.cos(rad), dy = Math.sin(rad);
+  const rows = new Map();
+  const place = (r,c,ch)=>{
+    r = Math.round(r); c = Math.max(0, Math.round(c));
+    if (r<0) return; const a = rows.get(r)||[]; a.push([c,ch]); rows.set(r,a);
+  };
+  for (let i=0;i<Math.max(0,len-1);i++) place(row0+dy*i, col0+dx*i, SEG);
+  place(row0+dy*(len-1), col0+dx*(len-1), TIP);
 
-  // ---- Quick helpers to nudge mouth live with arrow keys (optional)
-  addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowUp')    { MOUTH_ROW = Math.max(0, MOUTH_ROW - 1); e.preventDefault(); }
-    if (e.key === 'ArrowDown')  { MOUTH_ROW += 1; e.preventDefault(); }
-    if (e.key === 'ArrowLeft')  { MOUTH_COL = Math.max(0, MOUTH_COL - 1); e.preventDefault(); }
-    if (e.key === 'ArrowRight') { MOUTH_COL += 1; e.preventDefault(); }
+  const maxR = Math.max(...rows.keys());
+  let out = [];
+  for (let r=0;r<=maxR;r++){
+    const a = rows.get(r); if (!a){ out.push(''); continue; }
+    a.sort((x,y)=>x[0]-y[0]);
+    let s='', last=-1;
+    for (const [col,ch] of a){ if (col>last+1) s += ' '.repeat(col-(last+1)); s+=ch; last=col; }
+    out[r]=s;
+  }
+  return '\n'.repeat(Math.max(0,row0)) + out.join('\n');
+}
+
+/* --- viewport fit (scale both layers together) --- */
+function fit(){
+  baseEl.style.transform = ovEl.style.transform = 'scale(1)';
+  requestAnimationFrame(()=>{
+    baseEl.textContent = carveMouth(lines0, open01); // reflect current state
+    const pad=12, maxW=innerWidth-pad, maxH=innerHeight-pad;
+    const w=baseEl.scrollWidth, h=baseEl.scrollHeight;
+    const scale = Math.min(maxW/w, maxH/h, 1);
+    const offX = Math.max((maxW-w*scale)/2,0), offY = Math.max((maxH-h*scale)/2,0);
+    const t = `translate(${offX}px, ${offY}px) scale(${scale})`;
+    baseEl.style.transform=t; ovEl.style.transform=t;
   });
+}
+addEventListener('resize', fit);
+
+/* --- targets on same row (spacing) --- */
+function buildTargets(){
+  const mouthMidRow = MOUTH_ROW + Math.floor(MOUTH_H/2);
+  const startCol = MOUTH_COL + MOUTH_W;
+  const arr = [];
+  for (let i=0;i<SHOTS;i++){
+    const col = START_AT_LEFT ? startCol + i*SPACING : startCol - i*SPACING;
+    arr.push({row: mouthMidRow, col});
+  }
+  return arr;
+}
+
+/* --- state machine: open -> extend -> hold -> retract -> next target -> close -> repeat --- */
+let phase='open', frame=0, open01=0, L=0, shotIdx=0;
+function originForShot(){
+  // origin is at mouth edge; use same row as targets
+  return {row: MOUTH_ROW + Math.floor(MOUTH_H/2), col: MOUTH_COL + MOUTH_W};
+}
+function targetAngle(target){
+  // compute angle from origin to target so you can tilt automatically if SPACING != 0
+  const o = originForShot();
+  const dy = target.row - o.row, dx = target.col - o.col;
+  return Math.atan2(dy, dx) * 180/Math.PI;
+}
+let targets = buildTargets();
+
+function step(){
+  const o = originForShot();
+  const target = targets[shotIdx] || targets[targets.length-1];
+  // If ANGLE_DEG is 0, tongue is horizontal; comment next line to force manual angle
+  const angle = ANGLE_DEG !== 0 ? ANGLE_DEG : targetAngle(target);
+
+  switch(phase){
+    case 'open':
+      open01 = Math.min(1, (frame+1)/OPEN_STEPS);
+      if (open01>=1){ phase='extend'; frame=-1; }
+      break;
+    case 'extend': {
+      const dx = Math.abs(target.col - o.col), dy = Math.abs(target.row - o.row);
+      const need = Math.min(MAX_LEN, Math.round(Math.hypot(dx,dy)));
+      L = Math.min(need, L + EXT_SPEED);
+      if (L>=need){ L=need; phase='hold'; frame=-1; }
+      break;
+    }
+    case 'hold':
+      if (frame>=HOLD_FRAMES){ phase='retract'; frame=-1; }
+      break;
+    case 'retract':
+      L = Math.max(0, L - RET_SPEED);
+      if (L<=0){
+        shotIdx++;
+        if (shotIdx >= targets.length){ phase='close'; } else { phase='extend'; }
+        frame=-1;
+      }
+      break;
+    case 'close':
+      open01 = Math.max(0, 1 - (frame+1)/OPEN_STEPS);
+      if (open01<=0){ phase='open'; frame=-1; shotIdx=0; } // loop
+      break;
+  }
+  frame++;
+
+  baseEl.textContent = carveMouth(lines0, open01);
+  ovEl.textContent   = drawTongue(L, o.row, o.col, ANGLE_DEG!==0 ? ANGLE_DEG : targetAngle(target));
+}
+
+baseEl.textContent = ART; // quick preview
+let timer = setInterval(step, 1000/FPS);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden){ clearInterval(timer); timer=null; }
+  else if (!timer){ timer=setInterval(step, 1000/FPS); }
+});
+
+/* --- live controls for lining up with your art --- */
+addEventListener('keydown',(e)=>{
+  if (e.key==='ArrowUp')   { MOUTH_ROW--;  fit(); targets=buildTargets(); }
+  if (e.key==='ArrowDown') { MOUTH_ROW++;  fit(); targets=buildTargets(); }
+  if (e.key==='ArrowLeft') { MOUTH_COL--;  fit(); targets=buildTargets(); }
+  if (e.key==='ArrowRight'){ MOUTH_COL++;  fit(); targets=buildTargets(); }
+  if (e.key==='[') { MOUTH_W=Math.max(1,MOUTH_W-1); fit(); targets=buildTargets(); }
+  if (e.key===']') { MOUTH_W+=1;                      fit(); targets=buildTargets(); }
+  if (e.key==='{') { MOUTH_H=Math.max(1,MOUTH_H-1); fit(); targets=buildTargets(); }
+  if (e.key==='}') { MOUTH_H+=1;                     fit(); targets=buildTargets(); }
+  if (e.key===',') { ANGLE_DEG-=3; }   // manual tilt override
+  if (e.key==='.') { ANGLE_DEG+=3; }
+  if (e.key==='+' || e.key==='='){ FPS=Math.min(120,FPS+5); restart(); }
+  if (e.key==='-' || e.key==='_'){ FPS=Math.max(5,FPS-5);  restart(); }
+  if (e.key.toLowerCase()==='p'){ // pause
+    if (timer){ clearInterval(timer); timer=null; } else restart();
+  }
+});
+function restart(){ clearInterval(timer); timer=setInterval(step, 1000/FPS); }
+fit();
 </script>
