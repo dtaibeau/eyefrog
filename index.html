@@ -309,11 +309,11 @@ function logConfig(){
   console.log("MOUTH_H   =", MOUTH_H);
   console.log("MOUTH_ROT_DEG =", MOUTH_ROT_DEG);
 
-  const o = originForShot();
-  console.log("TONGUE_ROW =", TONGUE_ROW ?? o.row);
-  console.log("TONGUE_COL =", TONGUE_COL ?? o.col);
+  console.log("TONGUE_ROW =", TONGUE_ROW);
+  console.log("TONGUE_COL =", TONGUE_COL);
   console.log("TONGUE_THICK =", TONGUE_THICK);
   console.log("TONGUE_ANGLE_DEG =", TONGUE_ANGLE_DEG || 0);
+  ;
 }
 logConfig();
 
@@ -569,10 +569,12 @@ addEventListener('keydown',(e)=>{
   }
 
   // ----- Tongue controls -----
-  if (e.key.toLowerCase()==='t'){           // toggle tongue lock
-    TONGUE_LOCK = !TONGUE_LOCK;
-    console.log('TONGUE_LOCK =', TONGUE_LOCK);
-  }
+  if (e.key.toLowerCase() === 't'){           
+  TONGUE_LOCK = !TONGUE_LOCK;
+  console.log('TONGUE_LOCK =', TONGUE_LOCK);
+  logConfig();   // 👈 this line calls the logger when T is pressed
+}
+
 
   // Move tongue origin with WASD when unlocked
   if (!TONGUE_LOCK){
