@@ -277,21 +277,22 @@ const ART = `
 `.trimEnd();
 
 /* ===== 2) Mouth + targets configuration ===== */
-let MOUTH_ROW = 75;      // top-left of mouth box
-let MOUTH_COL = 68;
-let MOUTH_W   = 10;      // width (chars)
-let MOUTH_H   = 5;       // height (chars)
-let MOUTH_ROT_DEG = -8;  // tilt angle (deg)
 
-let ANGLE_DEG = 0;       // tongue angle; 0 = auto-aim along row to targets
+/* ===== 2) Mouth + targets configuration ===== */
+let MOUTH_ROW = 44;
+let MOUTH_COL = 70;
+let MOUTH_W   = 252;
+let MOUTH_H   = 12;
+let MOUTH_ROT_DEG = -16;
 
-const SHOTS   = 4;       // number of shots
-const SPACING = 7;       // spacing (chars) along same row
-const START_AT_LEFT = true; // if false, shoots leftward
+let ANGLE_DEG = 0;
 
-/* ===== Lock + guide ===== */
-const LOCK_MOUTH = false;  // unlock so keys work
-let showGuide = true;     // start with guide hidden
+const SHOTS   = 4;
+const SPACING = 7;
+const START_AT_LEFT = true;
+
+const LOCK_MOUTH = true;  // lock in place
+let showGuide = false;    // hide guide on load
 
 /* ===== Console logger ===== */
 function logMouthConfig(){
