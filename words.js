@@ -1,51 +1,79 @@
-// Pixels per ASCII "cell" at design size (16px monospace)
-const CELL_W = 8;    // approx char width at 16px; tweak if needed
-const CELL_H = 16;   // line height at 16px
+// DOM words overlay controller
+// Expects main.js to define: window.__EYEFROG__ with { getStickyWords, getTransforms }
+// - getStickyWords(): returns [{row, col, text}, ...] in ASCII cell coordinates
+// - getTransforms(): returns { scale, offX, offY, CELL_W, CELL_H }
 
-function getView(){
-  // Provided by index.html's fit()
-  return (window.__eyefrogView || { scale: 1, offX: 0, offY: 0 });
-}
+(() => {
+  const wordsEl = document.getElementById('words');
 
-function ensureWordEl(id, text){
-  let el = document.getElementById(id);
-  if (!el){
-    el = document.createElement('div');
-    el.id = id;
-    el.className = 'word';
-    el.textContent = String(text).toUpperCase();
-    document.getElementById('words').appendChild(el);
+  // Global horizontal push (kept from your 50px shift request)
+  const GLOBAL_DX = 50;  // shift right by 50px
+  const GLOBAL_DY = 0;
+
+  // Scatter map (pixels) per word to avoid a straight line stack
+  // Tweak these numbers anytime to reposition without touching the animation.
+  const WORD_OFFSETS = {
+    'NOTHING': { dx:  30, dy: -18 },
+    'TO'     : { dx:  85, dy:  10 },
+    'SEE'    : { dx:  10, dy:  34 },
+    'HERE'   : { dx:  60, dy:  58 },
+  };
+
+  // Utility: ensure an element exists for each sticky word
+  function ensureEl(id, label) {
+    let el = document.getElementById(id);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'word';
+      el.id = id;
+      el.dataset.w = label.toUpperCase();
+      el.textContent = label.toUpperCase();
+      wordsEl.appendChild(el);
+    }
+    return el;
   }
-  return el;
-}
 
-/**
- * Places each sticky word as an absolutely-positioned DOM element.
- * Fixed-size mode (36px): we do NOT scale the element, only its position.
- * If you want words to scale with the scene instead, set el.style.transform = `scale(scale)`.
- */
-window.updateWordsOverlay = function updateWordsOverlay(){
-  const wordsLayer = document.getElementById('words');
-  if (!wordsLayer || !window.stickyWords) return;
+  // Called by main.js after each frame render
+  function updateWordsOverlay() {
+    if (!window.__EYEFROG__) return;
 
-  const { scale, offX, offY } = getView();
+    const { getStickyWords, getTransforms } = window.__EYEFROG__;
+    const stickyWords = getStickyWords();
+    const { scale, offX, offY, CELL_W, CELL_H } = getTransforms();
 
-  for (const w of window.stickyWords){
-    const id = `w-${w.row}-${w.col}-${w.text}`;
-    const el = ensureWordEl(id, w.text);
+    // Track which elements are used this frame
+    const usedIds = new Set();
 
-    // Map row/col -> viewport px
-    const leftPx = offX + (w.col * CELL_W * scale) + 200;  // shift right 50px
-    const topPx  = offY + (w.row * CELL_H * scale);
+    for (const w of stickyWords) {
+      const id = `word-${w.row}-${w.col}-${w.text}`;
+      const label = String(w.text || '').toUpperCase();
+      const el = ensureEl(id, label);
+      usedIds.add(id);
 
+      // Base position from ASCII grid → pixels
+      let leftPx = offX + (w.col * CELL_W * scale);
+      let topPx  = offY + (w.row * CELL_H * scale);
 
-    el.style.left = leftPx + 'px';
-    el.style.top  = topPx + 'px';
+      // Apply global and per-word scatter offsets (in pixels, NOT scaled)
+      const scatter = WORD_OFFSETS[label] || { dx: 0, dy: 0 };
+      leftPx += GLOBAL_DX + scatter.dx;
+      topPx  += GLOBAL_DY + scatter.dy;
 
-    // Keep constant 36px size (do not scale the element)
-    el.style.transform = 'none';
+      // Place
+      el.style.left = `${leftPx}px`;
+      el.style.top  = `${topPx}px`;
+      el.style.opacity = '1';
+      el.style.position = 'absolute';
+    }
 
-    // Or, to scale with the frog, use:
-    // el.style.transform = `scale(${scale})`;
+    // Hide/remove any stale word elements (not shown this loop)
+    Array.from(wordsEl.children).forEach(node => {
+      if (!usedIds.has(node.id)) {
+        node.remove(); // remove instead of hide so they don't pile up
+      }
+    });
   }
-};
+
+  // Expose to main.js
+  window.updateWordsOverlay = updateWordsOverlay;
+})();

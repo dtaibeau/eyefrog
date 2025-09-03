@@ -1,19 +1,27 @@
+/* Absolutely positioned overlay for DOM words (not affected by <pre> rules) */
 #words{
   position:absolute;
   inset:0;
+  transform-origin: top left;
   pointer-events:none;
-  z-index:3;            /* ensure this layer is above the <pre> art layers */
 }
 
+/* Word styling: no glow, bigger, uppercase, bold */
 .word{
   position:absolute;
-  font-size:36px;       /* independent of <pre> scale */
+  font-size:36px;
   font-weight:700;
   text-transform:uppercase;
   color:#7CFF8B;
-  text-shadow:0 0 10px #0f5, 0 0 18px #0a4;
+  text-shadow:none;      /* no glow */
   line-height:1;
   white-space:nowrap;
-  transform-origin: top left;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  letter-spacing:0.5px;
 }
+
+/* optional: slight per-word rotation vibe (comment out if you don't want) */
+.word[data-w="NOTHING"] { transform: rotate(-3deg); }
+.word[data-w="TO"]      { transform: rotate(2deg); }
+.word[data-w="SEE"]     { transform: rotate(-1deg); }
+.word[data-w="HERE"]    { transform: rotate(3deg); }
+
