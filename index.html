@@ -16,9 +16,9 @@
   }
   #base   { color:#19f06d; text-shadow:0 0 6px #093; }
   #overlay{ color:#b7ffcf; text-shadow:0 0 10px #0f5; }
-  #words{
-  position:absolute; inset:0; transform-origin: top left; pointer-events:none;
-}
+  #words{ position:absolute; inset:0; transform-origin:top left; pointer-events:none; z-index:3; }
+pre{ z-index:1; }
+
 .word{
   position:absolute;
   font-size:36px;   /* this WILL work now */
@@ -334,6 +334,7 @@ const HOLD_FRAMES  = 8;     // pause at full extension
 const SEG = '='; const TIP = '»';
 
 const baseEl = document.getElementById('base');
+updateWordsOverlay();
 const ovEl   = document.getElementById('overlay');
 const wordsEl = document.getElementById('words');
 const lines0 = ART.split('\n');
@@ -457,6 +458,32 @@ function vecFromOriginToTip(tip){
   return { angle, dist };
 }
 
+// === DOM words (36px) ===
+const CELL_H = 16;   // row height in px (matches <pre> font-size)
+const CELL_W = 8;    // col width in px (try 9 if words look a bit left)
+
+function ensureWordEl(id, text){
+  let el = document.getElementById(id);
+  if (!el){
+    el = document.createElement('div');
+    el.id = id;
+    el.className = 'word';
+    el.textContent = text.toUpperCase();
+    wordsEl.appendChild(el);
+  }
+  return el;
+}
+
+function updateWordsOverlay(){
+  for (const w of stickyWords){
+    const id = `w-${w.row}-${w.col}-${w.text}`;
+    const el = ensureWordEl(id, w.text);
+    el.style.left = `${w.col * CELL_W}px`;
+    el.style.top  = `${w.row * CELL_H}px`;
+  }
+}
+
+
 /* ---------- viewport fit ---------- */
 function fit(){
   baseEl.style.transform = ovEl.style.transform = 'scale(1)';
@@ -511,6 +538,7 @@ function step(){
           // loop restart: clear all words and start over
           shotIdx = 0;
           stickyWords = [];
+          wordsEl.innerHTML = '';
           phase='close';
         } else {
           phase='extend';
@@ -535,8 +563,6 @@ function step(){
   if (showGuide) addGuideToRows(rows);
 
   ovEl.textContent = rowsToString(rows);
-
-  updateWordsOverlay();
 }
 
 baseEl.textContent = ART;
