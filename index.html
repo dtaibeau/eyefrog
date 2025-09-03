@@ -532,12 +532,11 @@ function step(){
   const { rows, tipR, tipC } = drawTongueGrid(L, o.row, o.col, angle, TONGUE_THICK);
   lastTip = { r: tipR, c: tipC };
 
-  // draw sticky words
-  for (const w of stickyWords) putText(rows, w.row, w.col, w.text);
-
   if (showGuide) addGuideToRows(rows);
 
   ovEl.textContent = rowsToString(rows);
+
+  updateWordsOverlay();
 }
 
 baseEl.textContent = ART;
