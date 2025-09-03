@@ -7,17 +7,19 @@
 }
 
 /* Word styling: no glow, bigger, uppercase, bold */
-.word{
+.word {
   position:absolute;
-  font-size:60px;
+  font-size:36px;
   font-weight:700;
   text-transform:uppercase;
   color:#7CFF8B;
-  text-shadow:none;      /* no glow */
   line-height:1;
   white-space:nowrap;
-  letter-spacing:0.5px;
+
+  /* NEW: typewriter font */
+  font-family: "Courier New", Courier, "Lucida Console", monospace;
 }
+
 
 /* optional: slight per-word rotation vibe (comment out if you don't want) */
 .word[data-w="NOTHING"] { transform: rotate(-3deg); }
