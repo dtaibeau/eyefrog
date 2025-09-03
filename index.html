@@ -302,8 +302,8 @@ let TONGUE_LOCK = false;      // T to toggle lock
 /* ===== 3) Animation timing ===== */
 let FPS = 30;
 const OPEN_STEPS   = 8;     // frames to open/close
-const EXT_SPEED    = 3;     // chars/frame (extend)
-const RET_SPEED    = 4;     // chars/frame (retract)
+const EXT_SPEED    = 6;     // chars/frame (extend)
+const RET_SPEED    = 6;     // chars/frame (retract)
 const MAX_LEN      = 10000; // allow long reaches
 const HOLD_FRAMES  = 8;     // pause at full extension
 const SEG = '='; const TIP = '»';
@@ -469,16 +469,20 @@ function step(){
       if (open01>=1){ phase='extend'; frame=-1; }
       break;
     case 'extend': {
-        L = Math.min(need, L + EXT_SPEED);
-        if (L>=need){ L=need; phase='hold'; frame=-1; }
-      } break;
-    case 'hold':
-      // stamp the word exactly at the TIP location for this shot (only once)
-      if (frame === 0) {
+    const was = L;
+    L = Math.min(need, L + EXT_SPEED);
+    if (was < need && L >= need) {
+        // Arrived this tick: stamp immediately
         stickyWords.push({ row: target.row, col: target.col, text: target.word });
-        window.stickyWords = stickyWords; // keep reference fresh for words.js
-      }
-      if (frame>=HOLD_FRAMES){ phase='retract'; frame=-1; }
+    }
+    if (L >= need){ L = need; phase = 'hold'; frame = -1; }
+    } break;
+
+    case 'hold':
+    // no stamping here anymore
+    if (frame >= HOLD_FRAMES){ phase='retract'; frame=-1; }
+    break;
+
       break;
     case 'retract':
       L = Math.max(0, L - RET_SPEED);
