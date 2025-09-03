@@ -16,10 +16,20 @@
   }
   #base   { color:#19f06d; text-shadow:0 0 6px #093; }
   #overlay{ color:#b7ffcf; text-shadow:0 0 10px #0f5; }
-  #hud{
-    position:fixed; left:10px; bottom:10px; right:10px;
-    font:12px/1.2 ui-monospace,monospace; color:#9fe9b3; opacity:.75
-  }
+  #words{
+  position:absolute; inset:0; transform-origin: top left; pointer-events:none;
+}
+.word{
+  position:absolute;
+  font-size:36px;
+  font-weight:700;
+  text-transform:uppercase;
+  color:#7CFF8B;
+  text-shadow:0 0 10px #0f5, 0 0 18px #0a4;
+  line-height:1;
+  white-space:nowrap;
+}
+
 </style>
 
 <div class="stage">
