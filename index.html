@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>eyefrog — fixed tip shots + sticky words</title>
+<title>eyefrog — locked tips + big words</title>
 <style>
   html,body{height:100%}
   body{
@@ -16,6 +16,22 @@
   }
   #base   { color:#19f06d; text-shadow:0 0 6px #093; }
   #overlay{ color:#b7ffcf; text-shadow:0 0 10px #0f5; }
+
+  /* Big word overlay (not scaled; we position with scale-aware math) */
+  #words{
+    position:absolute; inset:0; transform-origin: top left; pointer-events:none;
+  }
+  .word{
+    position:absolute;
+    font-size:36px;           /* stays ~36px on screen */
+    font-weight:700;
+    text-transform:uppercase;
+    color:#7CFF8B;
+    text-shadow:0 0 10px #0f5, 0 0 18px #0a4;
+    line-height:1;
+    white-space:nowrap;
+  }
+
   #hud{
     position:fixed; left:10px; bottom:10px; right:10px;
     font:12px/1.2 ui-monospace,monospace; color:#9fe9b3; opacity:.75
@@ -25,10 +41,11 @@
 <div class="stage">
   <pre id="base"></pre>
   <pre id="overlay"></pre>
+  <div id="words"></div> <!-- big word overlay -->
 </div>
 <div id="hud">
   G guide • L log config • P pause • +/- speed<br/>
-  Mouth is locked (edit LOCK_MOUTH to move). Tongue: T lock/unlock • WASD move • &lt; &gt; thickness • ; ' angle • 0 auto-aim
+  Mouth is locked. Tongue: T lock/unlock • WASD move • &lt; &gt; thickness • ; ' angle • 0 auto-aim
 </div>
 
 <script>
@@ -273,22 +290,22 @@ const ART = `
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                                                                                                                                                                
+                                                                                                                                                                                                                                                                                                                                                                                        
 `.trimEnd();
 
-/* ===== 2) Mouth + targets configuration ===== */
+/* ===== 2) Mouth + fixed targets configuration ===== */
 let MOUTH_ROW = 44;
 let MOUTH_COL = 70;
 let MOUTH_W   = 252;
 let MOUTH_H   = 12;
 let MOUTH_ROT_DEG = -16;
 
-/* --- Fixed tip targets (ABSOLUTE coordinates) --- */
+/* Four fixed tongue tips + words (in order) */
 const FIXED_TIPS = [
-  { row:  74, col: 345, word: "Nothing" },
-  { row:  95, col: 344, word: "To"      },
-  { row: 119, col: 331, word: "See"     },
-  { row: 148, col: 316, word: "Here"    },
+  { row:  74, col: 345, word: 'Nothing' },
+  { row:  95, col: 344, word: 'To'      },
+  { row: 119, col: 331, word: 'See'     },
+  { row: 148, col: 316, word: 'Here'    },
 ];
 
 /* Mouth lock / guide */
@@ -298,7 +315,8 @@ let showGuide = false;
 /* ===== Tongue configuration (independent of mouth) ===== */
 let TONGUE_ROW = null;        // null = default to mouth center until set
 let TONGUE_COL = null;
-let TONGUE_THICK = 3;
+let TONGUE_ANGLE_DEG = 0;     // 0 = auto-aim at current target
+let TONGUE_THICK = 3;         // tongue thickness (number of strands)
 let TONGUE_LOCK = false;      // T to toggle lock
 
 /* ===== Console logger ===== */
@@ -308,33 +326,55 @@ function logConfig(){
   console.log("MOUTH_W   =", MOUTH_W);
   console.log("MOUTH_H   =", MOUTH_H);
   console.log("MOUTH_ROT_DEG =", MOUTH_ROT_DEG);
-
   const o = originForShot();
-  console.log("TONGUE_ORIGIN row=", o.row, "col=", o.col);
+  console.log("TONGUE_ROW =", TONGUE_ROW ?? o.row);
+  console.log("TONGUE_COL =", TONGUE_COL ?? o.col);
+  console.log("TONGUE_THICK =", TONGUE_THICK);
+  console.log("TONGUE_ANGLE_DEG =", TONGUE_ANGLE_DEG || 0);
 }
+logConfig();
 
 /* ===== 3) Animation timing ===== */
 let FPS = 30;
-const OPEN_STEPS   = 8;     // frames to open/close
-const EXT_SPEED    = 3;     // chars/frame (extend)
-const RET_SPEED    = 4;     // chars/frame (retract)
-const MAX_LEN      = 10000; // allow long reaches
-const HOLD_FRAMES  = 8;     // pause at full extension
+const OPEN_STEPS   = 8;   // frames to open/close
+const EXT_SPEED    = 3;   // chars/frame (extend)
+const RET_SPEED    = 4;   // chars/frame (retract)
+const MAX_LEN      = 999; // safety
+const HOLD_FRAMES  = 8;   // pause at full extension
 const SEG = '='; const TIP = '»';
 
-const baseEl = document.getElementById('base');
-const ovEl   = document.getElementById('overlay');
-const lines0 = ART.split('\n');
+/* ===== DOM refs ===== */
+const baseEl  = document.getElementById('base');
+const ovEl    = document.getElementById('overlay');
+const wordsEl = document.getElementById('words');
+const lines0  = ART.split('\n');
+
+/* ===== character cell metrics (measured precisely) ===== */
+let CELL_W = 9;       // fallback
+let CELL_H = 16;      // fallback
+measureCell();
+function measureCell(){
+  const meas = document.createElement('pre');
+  meas.style.position='absolute';
+  meas.style.visibility='hidden';
+  meas.style.whiteSpace='pre';
+  meas.style.lineHeight='1';
+  meas.style.fontSize='16px';
+  meas.textContent = 'X'.repeat(200) + '\nY'.repeat(200);
+  document.body.appendChild(meas);
+  const r = meas.getBoundingClientRect();
+  CELL_W = r.width / 200;
+  CELL_H = r.height / 2;  // two lines
+  meas.remove();
+}
 
 /* ---------- rotated-oval mouth, opens top → bottom (width fixed) ---------- */
 function carveMouth(srcLines, open01){
   const W = Math.max(1, MOUTH_W);
-  const H = Math.max(1, Math.round(MOUTH_H * open01)); // opening height grows downward
+  const H = Math.max(1, Math.round(MOUTH_H * open01));
   const lines = srcLines.map(s => s.split(''));
-
   const cx = MOUTH_COL + Math.floor(W / 2);
   const cy = MOUTH_ROW + Math.floor(MOUTH_H / 2);
-
   const a  = W / 2;
   const b  = Math.max(0.5, H / 2);
   const th = (MOUTH_ROT_DEG * Math.PI)/180;
@@ -347,105 +387,95 @@ function carveMouth(srcLines, open01){
       const cc = MOUTH_COL + c;
       if (cc < 0) continue;
       while (cc >= lines[rr].length) lines[rr].push(' ');
-
       const dx = cc - cx, dy = rr - cy;
       const xr =  dx * cos + dy * sin;
       const yr = -dx * sin + dy * cos;
-
-      if ((xr*xr)/(a*a) + (yr*yr)/(b*b) <= 1) {
-        lines[rr][cc] = ' ';
-      }
+      if ((xr*xr)/(a*a) + (yr*yr)/(b*b) <= 1) lines[rr][cc] = ' ';
     }
   }
   return lines.map(a=>a.join('')).join('\n');
 }
 
-/* ==================== GRID HELPERS ==================== */
-function rowsToString(rows) {
-  const maxR = rows.size ? Math.max(...rows.keys()) : 0;
+/* ---------- thicker tongue drawing ---------- */
+function drawTongue(len, row0, col0, angleDeg, thick=1){
+  if (len<=0 || thick<=0) return '';
+  const rad = angleDeg * Math.PI/180;
+  const dx = Math.cos(rad), dy = Math.sin(rad);
+  const px = -Math.sin(rad), py = Math.cos(rad);
+
+  const rows = new Map();
+  const put = (r,c,ch)=>{
+    r = Math.round(r); c = Math.max(0, Math.round(c));
+    if (r<0) return; const a = rows.get(r)||[]; a.push([c,ch]); rows.set(r,a);
+  };
+
+  const half = Math.floor((thick-1)/2);
+  const offsets = Array.from({length:thick}, (_,i)=> i-half);
+
+  for (let i=0;i<Math.max(0,len-1);i++){
+    for (const s of offsets){
+      const rr = row0 + dy*i + py*s;
+      const cc = col0 + dx*i + px*s;
+      put(rr, cc, SEG);
+    }
+  }
+  const tipR = row0 + dy*(len-1);
+  const tipC = col0 + dx*(len-1);
+  put(tipR, tipC, TIP);
+
+  const maxR = Math.max(...rows.keys(), 0);
   const out = [];
-  for (let r = 0; r <= maxR; r++) {
-    const a = rows.get(r);
-    if (!a) { out.push(''); continue; }
+  for (let r=0;r<=maxR;r++){
+    const a = rows.get(r); if (!a){ out.push(''); continue; }
     a.sort((x,y)=>x[0]-y[0]);
     let s='', last=-1;
-    for (const [col,ch] of a){
+    for (const [col,ch] of a){ if (col>last+1) s+=' '.repeat(col-(last+1)); s+=ch; last=col; }
+    out[r]=s;
+  }
+  return '\n'.repeat(Math.max(0,row0)) + out.join('\n');
+}
+
+/* ---------- rotated-oval guide + (optional) target dots ---------- */
+function guideOverlay(targets) {
+  const rows = new Map();
+  const put = (r,c,ch)=>{
+    r = Math.round(r); c = Math.max(0, Math.round(c));
+    if (r < 0) return; const a = rows.get(r) || []; a.push([c, ch]); rows.set(r, a);
+  };
+
+  const cx = MOUTH_COL + Math.floor(MOUTH_W/2);
+  const cy = MOUTH_ROW + Math.floor(MOUTH_H/2);
+  const a  = MOUTH_W/2, b = MOUTH_H/2;
+  const th = (MOUTH_ROT_DEG * Math.PI) / 180, cos = Math.cos(th), sin = Math.sin(th);
+
+  for (let r = MOUTH_ROW; r < MOUTH_ROW + MOUTH_H; r++){
+    for (let c = MOUTH_COL; c < MOUTH_COL + MOUTH_W; c++){
+      const dx = c - cx, dy = r - cy;
+      const xr =  dx * cos + dy * sin;
+      const yr = -dx * sin + dy * cos;
+      const v = (xr * xr) / (a * a) + (yr * yr) / (b * b);
+      if (v > 0.97 && v < 1.03) put(r, c, '·');
+    }
+  }
+  for (const t of targets) put(t.row, t.col, '•');
+
+  const maxR = Math.max(...rows.keys(), 0), out = [];
+  for (let r = 0; r <= maxR; r++){
+    const arow = rows.get(r);
+    if (!arow){ out.push(''); continue; }
+    arow.sort((x,y)=>x[0]-y[0]);
+    let s='', last=-1;
+    for (const [col,ch] of arow){
       if (col>last+1) s += ' '.repeat(col-(last+1));
       s += ch; last=col;
     }
     out[r]=s;
   }
-  return out.join('\n');
-}
-function putChar(rows, r, c, ch){
-  r = Math.round(r); c = Math.max(0, Math.round(c));
-  if (r < 0) return;
-  const a = rows.get(r) || [];
-  a.push([c, ch]);
-  rows.set(r, a);
-}
-function putText(rows, r, c, text){
-  const rr = Math.round(r);
-  let cc = Math.max(0, Math.round(c));
-  for (const ch of String(text)) putChar(rows, rr, cc++, ch);
-}
-
-/* ---------- tongue origin ---------- */
-function originForShot(){
-  if (TONGUE_ROW != null && TONGUE_COL != null) {
-    return { row: TONGUE_ROW, col: TONGUE_COL };
-  }
-  return {
-    row: MOUTH_ROW + Math.floor(MOUTH_H / 2),
-    col: MOUTH_COL + Math.floor(MOUTH_W / 2)
-  };
-}
-
-/* ---------- draw tongue, return tip coords ---------- */
-function drawTongueGrid(len, row0, col0, angleDeg, thick=1){
-  const rows = new Map();
-  if (len<=0 || thick<=0) return { rows, tipR: row0, tipC: col0 };
-
-  const rad = angleDeg * Math.PI/180;
-  const dx = Math.cos(rad), dy = Math.sin(rad);
-  const px = -Math.sin(rad), py = Math.cos(rad);
-
-  const half = Math.floor((thick-1)/2);
-  const offsets = Array.from({length:thick}, (_,i)=> i-half);
-
-  // shaft
-  for (let i=0;i<Math.max(0,len-1);i++){
-    for (const s of offsets){
-      const rr = row0 + dy*i + py*s;
-      const cc = col0 + dx*i + px*s;
-      putChar(rows, rr, cc, SEG);
-    }
-  }
-
-  // tip (center strand)
-  const tipR = row0 + dy*(len-1);
-  const tipC = col0 + dx*(len-1);
-  putChar(rows, tipR, tipC, TIP);
-
-  return { rows, tipR, tipC };
-}
-
-/* ---------- simple guide (optional) ---------- */
-function addGuideToRows(rows) {
-  for (const t of FIXED_TIPS) putChar(rows, t.row, t.col, '•');
-}
-
-/* ---------- distance + angle from origin to a TIP ---------- */
-function vecFromOriginToTip(tip){
-  const o = originForShot();
-  const dx = tip.col - o.col;
-  const dy = tip.row - o.row;
-  const angle = Math.atan2(dy, dx) * 180/Math.PI;
-  const dist  = Math.ceil(Math.hypot(dx, dy)) + 1; // +1 so TIP lands exactly
-  return { angle, dist };
+  return '\n'.repeat(Math.max(0, Math.min(MOUTH_ROW, out.length ? MOUTH_ROW : 0))) + out.join('\n');
 }
 
 /* ---------- viewport fit ---------- */
+let currentScale = 1, currentOffX = 0, currentOffY = 0;
 function fit(){
   baseEl.style.transform = ovEl.style.transform = 'scale(1)';
   requestAnimationFrame(()=>{
@@ -457,20 +487,59 @@ function fit(){
     const offY = Math.max((maxH - h*scale)/2, 0);
     const t = `translate(${offX}px, ${offY}px) scale(${scale})`;
     baseEl.style.transform=t; ovEl.style.transform=t;
+
+    // Word layer: translate only (no scale) so font stays ~36px;
+    // we place words with scale-aware pixel coords.
+    wordsEl.style.transform = `translate(${offX}px, ${offY}px)`;
+
+    currentScale = scale; currentOffX = offX; currentOffY = offY;
+    // re-position any existing words
+    positionAllWords();
   });
 }
 addEventListener('resize', fit);
 
+/* ---------- tongue origin (independent of mouth when set) ---------- */
+function originForShot(){
+  if (TONGUE_ROW != null && TONGUE_COL != null) {
+    return { row: TONGUE_ROW, col: TONGUE_COL };
+  }
+  return {
+    row: MOUTH_ROW + Math.floor(MOUTH_H / 2),
+    col: MOUTH_COL + Math.floor(MOUTH_W / 2)
+  };
+}
+
+/* ---------- angle/length helpers ---------- */
+function angleTo(from, to){
+  const dy = to.row - from.row, dx = to.col - from.col;
+  return Math.atan2(dy, dx) * 180/Math.PI;
+}
+function lengthTo(from, to){
+  const dy = to.row - from.row, dx = to.col - from.col;
+  return Math.round(Math.min(MAX_LEN, Math.hypot(dx, dy)));
+}
+
+/* ---------- big word DOM management ---------- */
+const stickyWords = []; // {row,col,text,el}
+function placeWordElement(w){
+  // top/left in pixels inside #words, scale-aware (but font not scaled)
+  w.el.style.left = `${w.col * CELL_W * currentScale}px`;
+  w.el.style.top  = `${w.row * CELL_H * currentScale}px`;
+}
+function positionAllWords(){
+  for (const w of stickyWords){ placeWordElement(w); }
+}
+
 /* ---------- state machine ---------- */
 let phase='open', frame=0, open01=0, L=0, shotIdx=0;
-let stickyWords = [];         // keep words until loop restarts
-let lastTip = { r:null, c:null };
 
 function step(){
-  const o = originForShot();
-  const target = FIXED_TIPS[shotIdx] || FIXED_TIPS[FIXED_TIPS.length-1];
-  const { angle, dist } = vecFromOriginToTip(target);
-  const need = Math.min(dist, MAX_LEN);
+  const origin = originForShot();
+  const target = FIXED_TIPS[Math.min(shotIdx, FIXED_TIPS.length-1)];
+  const autoAngle = angleTo(origin, target);
+  const angle =
+    (TONGUE_ANGLE_DEG && TONGUE_ANGLE_DEG !== 0) ? TONGUE_ANGLE_DEG : autoAngle;
 
   switch(phase){
     case 'open':
@@ -478,14 +547,21 @@ function step(){
       if (open01>=1){ phase='extend'; frame=-1; }
       break;
     case 'extend': {
+        const need = lengthTo(origin, target);
         L = Math.min(need, L + EXT_SPEED);
-        if (L>=need){ L=need; phase='hold'; frame=-1; }
+        if (L>=need){ L=need; phase='hold'; frame=-1;
+
+          // Stamp word once on arrival
+          const el = document.createElement('div');
+          el.className = 'word';
+          el.textContent = target.word; // CSS uppercases it
+          const w = { row: target.row, col: target.col, text: target.word, el };
+          wordsEl.appendChild(el);
+          stickyWords.push(w);
+          placeWordElement(w);
+        }
       } break;
     case 'hold':
-      // stamp the word exactly at the TIP location for this shot (only once)
-      if (frame === 0) {
-        stickyWords.push({ row: target.row, col: target.col, text: target.word });
-      }
       if (frame>=HOLD_FRAMES){ phase='retract'; frame=-1; }
       break;
     case 'retract':
@@ -493,9 +569,6 @@ function step(){
       if (L<=0){
         shotIdx++;
         if (shotIdx >= FIXED_TIPS.length){
-          // loop restart: clear all words and start over
-          shotIdx = 0;
-          stickyWords = [];
           phase='close';
         } else {
           phase='extend';
@@ -505,59 +578,54 @@ function step(){
       break;
     case 'close':
       open01 = Math.max(0, 1 - (frame+1)/OPEN_STEPS);
-      if (open01<=0){ phase='open'; frame=-1; }
+      if (open01<=0){
+        // restart full loop
+        phase='open'; frame=-1; shotIdx=0;
+        // clear sticky words for next cycle
+        wordsEl.innerHTML = '';
+        stickyWords.length = 0;
+      }
       break;
   }
   frame++;
 
-  // Base
   baseEl.textContent = carveMouth(lines0, open01);
-
-  // Overlay: tongue + sticky words + optional guide
-  const { rows, tipR, tipC } = drawTongueGrid(L, o.row, o.col, angle, TONGUE_THICK);
-  lastTip = { r: tipR, c: tipC };
-
-  // draw sticky words
-  for (const w of stickyWords) putText(rows, w.row, w.col, w.text);
-
-  if (showGuide) addGuideToRows(rows);
-
-  ovEl.textContent = rowsToString(rows);
+  ovEl.textContent   = drawTongue(L, origin.row, origin.col, angle, TONGUE_THICK)
+                     + (showGuide ? guideOverlay(FIXED_TIPS) : '');
 }
 
+/* ---------- bootstrap ---------- */
 baseEl.textContent = ART;
 let timer = setInterval(step, 1000/FPS);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden){ clearInterval(timer); timer=null; }
   else if (!timer){ timer=setInterval(step, 1000/FPS); }
 });
+fit();
 
 /* ---------- hotkeys ---------- */
 addEventListener('keydown',(e)=>{
-  if (e.key.toLowerCase() === 'l') logConfig();
+  if (e.key.toLowerCase() === 'l') { logConfig(); }
 
   if (!LOCK_MOUTH) {
     if (e.key==='ArrowUp')   { MOUTH_ROW--;  fit(); }
     if (e.key==='ArrowDown') { MOUTH_ROW++;  fit(); }
     if (e.key==='ArrowLeft') { MOUTH_COL--;  fit(); }
     if (e.key==='ArrowRight'){ MOUTH_COL++;  fit(); }
+
     if (e.key==='[') { MOUTH_W=Math.max(1,MOUTH_W-1); fit(); }
-    if (e.key===']') { MOUTH_W+=1;                     fit(); }
-    if (e.key==='{') { MOUTH_H=Math.max(1,MOUTH_H-1);  fit(); }
-    if (e.key==='}') { MOUTH_H+=1;                     fit(); }
+    if (e.key===']') { MOUTH_W+=1; fit(); }
+    if (e.key==='{') { MOUTH_H=Math.max(1,MOUTH_H-1); fit(); }
+    if (e.key==='}') { MOUTH_H+=1; fit(); }
+
     if (e.key===',') { MOUTH_ROT_DEG = Math.max(-45, MOUTH_ROT_DEG - 1); fit(); }
     if (e.key==='.') { MOUTH_ROT_DEG = Math.min( 45, MOUTH_ROT_DEG + 1); fit(); }
   }
 
-  // T: toggle lock and print immediate origin + current tip
-  if (e.key.toLowerCase() === 't'){
-    TONGUE_LOCK = !TONGUE_LOCK;
-    const o = originForShot();
-    console.log(`TONGUE_ORIGIN row=${o.row} col=${o.col}`);
-    if (lastTip.r != null) console.log(`TONGUE_TIP row=${Math.round(lastTip.r)} col=${Math.round(lastTip.c)}`);
-  }
+  // tongue lock toggle
+  if (e.key.toLowerCase()==='t'){ TONGUE_LOCK = !TONGUE_LOCK; console.log('TONGUE_LOCK =', TONGUE_LOCK); }
 
-  // Move origin with WASD when unlocked (tips remain fixed)
+  // Move tongue origin with WASD when unlocked
   if (!TONGUE_LOCK){
     const oNow = originForShot();
     if (TONGUE_ROW==null) TONGUE_ROW = oNow.row;
@@ -568,9 +636,14 @@ addEventListener('keydown',(e)=>{
     if (e.key.toLowerCase()==='d'){ TONGUE_COL += 1; }
   }
 
+  // Tongue thickness & angle
   if (e.key==='<'){ TONGUE_THICK = Math.max(1, TONGUE_THICK-1); }
   if (e.key=='>'){ TONGUE_THICK = Math.min(20, TONGUE_THICK+1); }
+  if (e.key===';'){ TONGUE_ANGLE_DEG = (TONGUE_ANGLE_DEG||0) - 1; }
+  if (e.key==="'"){ TONGUE_ANGLE_DEG = (TONGUE_ANGLE_DEG||0) + 1; }
+  if (e.key==='0'){ TONGUE_ANGLE_DEG = 0; }
 
+  // Speed & pause
   if (e.key==='+' || e.key==='='){ FPS=Math.min(120,FPS+5); restart(); }
   if (e.key==='-' || e.key==='_'){ FPS=Math.max(5,FPS-5);  restart(); }
   if (e.key.toLowerCase()==='g'){ showGuide=!showGuide; }
@@ -579,7 +652,4 @@ addEventListener('keydown',(e)=>{
   }
 });
 function restart(){ clearInterval(timer); timer=setInterval(step, 1000/FPS); }
-
-/* kick things off */
-fit();
 </script>
