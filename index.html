@@ -1,6 +1,9 @@
 <!doctype html>
 <meta charset="utf-8" />
 <title>eyefrog</title>
+
+<link rel="stylesheet" href="words.css" />
+
 <style>
   html,body{height:100%}
   body{
@@ -11,38 +14,23 @@
   .stage{position:relative; width:100vw; height:100vh; overflow:hidden}
   pre{
     margin:0; white-space:pre; tab-size:2;
-    line-height:1; letter-spacing:0; font-size:16px;  /* design size; auto-scaled */
+    line-height:1; letter-spacing:0; font-size:16px; /* design size; auto-scaled */
     transform-origin: top left; position:absolute; top:0; left:0; user-select:none;
   }
   #base   { color:#19f06d; text-shadow:0 0 6px #093; }
   #overlay{ color:#b7ffcf; text-shadow:0 0 10px #0f5; }
-  #words{
-  position:absolute; inset:0; transform-origin: top left; pointer-events:none;
-}
-.word{
-  position:absolute;
-  font-size:36px;   /* this WILL work now */
-  font-weight:700;
-  text-transform:uppercase;
-  color:#7CFF8B;
-  text-shadow:0 0 10px #0f5, 0 0 18px #0a4;
-  line-height:1;
-  white-space:nowrap;
-}
-
-
 </style>
-
 
 <div class="stage">
   <pre id="base"></pre>
   <pre id="overlay"></pre>
-  <div id="words"></div>  <!-- inside stage -->
+  <div id="words"></div>
 </div>
-></div>
 
 <script>
-/* ===== 1) PASTE YOUR BIG ASCII HERE ===== */
+/* ===== 1) PASTE YOUR BIG ASCII HERE =====
+   Replace the placeholder below with your full ART string from your project.
+*/
 const ART = `
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
@@ -283,7 +271,7 @@ const ART = `
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
                                                                                                                                                                                                                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                                                                                                                                                                
+                                                                                                                                                                                                                                                                                                                                                                                        
 `.trimEnd();
 
 /* ===== 2) Mouth + targets configuration ===== */
@@ -310,18 +298,6 @@ let TONGUE_ROW = null;        // null = default to mouth center until set
 let TONGUE_COL = null;
 let TONGUE_THICK = 3;
 let TONGUE_LOCK = false;      // T to toggle lock
-
-/* ===== Console logger ===== */
-function logConfig(){
-  console.log("MOUTH_ROW =", MOUTH_ROW);
-  console.log("MOUTH_COL =", MOUTH_COL);
-  console.log("MOUTH_W   =", MOUTH_W);
-  console.log("MOUTH_H   =", MOUTH_H);
-  console.log("MOUTH_ROT_DEG =", MOUTH_ROT_DEG);
-
-  const o = originForShot();
-  console.log("TONGUE_ORIGIN row=", o.row, "col=", o.col);
-}
 
 /* ===== 3) Animation timing ===== */
 let FPS = 30;
@@ -395,11 +371,6 @@ function putChar(rows, r, c, ch){
   a.push([c, ch]);
   rows.set(r, a);
 }
-function putText(rows, r, c, text){
-  const rr = Math.round(r);
-  let cc = Math.max(0, Math.round(c));
-  for (const ch of String(text)) putChar(rows, rr, cc++, ch);
-}
 
 /* ---------- tongue origin ---------- */
 function originForShot(){
@@ -456,7 +427,8 @@ function vecFromOriginToTip(tip){
   return { angle, dist };
 }
 
-/* ---------- viewport fit ---------- */
+/* ---------- viewport fit (compute transform for <pre> and expose to words.js) ---------- */
+let viewScale = 1, viewOffX = 0, viewOffY = 0;
 function fit(){
   baseEl.style.transform = ovEl.style.transform = 'scale(1)';
   requestAnimationFrame(()=>{
@@ -467,7 +439,14 @@ function fit(){
     const offX = Math.max((maxW - w*scale)/2, 0);
     const offY = Math.max((maxH - h*scale)/2, 0);
     const t = `translate(${offX}px, ${offY}px) scale(${scale})`;
-    baseEl.style.transform=t; ovEl.style.transform=t;
+    baseEl.style.transform=t;
+    ovEl.style.transform=t;
+
+    viewScale = scale; viewOffX = offX; viewOffY = offY;
+    window.__eyefrogView = { scale: viewScale, offX: viewOffX, offY: viewOffY };
+
+    // re-layout words when viewport changes
+    if (window.updateWordsOverlay) window.updateWordsOverlay();
   });
 }
 addEventListener('resize', fit);
@@ -475,6 +454,7 @@ addEventListener('resize', fit);
 /* ---------- state machine ---------- */
 let phase='open', frame=0, open01=0, L=0, shotIdx=0;
 let stickyWords = [];         // keep words until loop restarts
+window.stickyWords = stickyWords; // expose to words.js
 let lastTip = { r:null, c:null };
 
 function step(){
@@ -496,6 +476,7 @@ function step(){
       // stamp the word exactly at the TIP location for this shot (only once)
       if (frame === 0) {
         stickyWords.push({ row: target.row, col: target.col, text: target.word });
+        window.stickyWords = stickyWords; // keep reference fresh for words.js
       }
       if (frame>=HOLD_FRAMES){ phase='retract'; frame=-1; }
       break;
@@ -507,6 +488,8 @@ function step(){
           // loop restart: clear all words and start over
           shotIdx = 0;
           stickyWords = [];
+          window.stickyWords = stickyWords;
+          wordsEl.innerHTML = '';   // clear DOM words
           phase='close';
         } else {
           phase='extend';
@@ -524,16 +507,14 @@ function step(){
   // Base
   baseEl.textContent = carveMouth(lines0, open01);
 
-  // Overlay: tongue + sticky words + optional guide
+  // Overlay: tongue + optional guide (NO words here)
   const { rows, tipR, tipC } = drawTongueGrid(L, o.row, o.col, angle, TONGUE_THICK);
   lastTip = { r: tipR, c: tipC };
-
-  // draw sticky words
-  for (const w of stickyWords) putText(rows, w.row, w.col, w.text);
-
   if (showGuide) addGuideToRows(rows);
-
   ovEl.textContent = rowsToString(rows);
+
+  // DOM words overlay (separate layer)
+  if (window.updateWordsOverlay) window.updateWordsOverlay();
 }
 
 baseEl.textContent = ART;
@@ -545,7 +526,16 @@ document.addEventListener('visibilitychange', () => {
 
 /* ---------- hotkeys ---------- */
 addEventListener('keydown',(e)=>{
-  if (e.key.toLowerCase() === 'l') logConfig();
+  if (e.key.toLowerCase() === 'l') {
+    console.log("MOUTH_ROW =", MOUTH_ROW);
+    console.log("MOUTH_COL =", MOUTH_COL);
+    console.log("MOUTH_W   =", MOUTH_W);
+    console.log("MOUTH_H   =", MOUTH_H);
+    console.log("MOUTH_ROT_DEG =", MOUTH_ROT_DEG);
+    const o = originForShot();
+    console.log("TONGUE_ORIGIN row=", o.row, "col=", o.col);
+    if (lastTip.r != null) console.log(`TONGUE_TIP row=${Math.round(lastTip.r)} col=${Math.round(lastTip.c)}`);
+  }
 
   if (!LOCK_MOUTH) {
     if (e.key==='ArrowUp')   { MOUTH_ROW--;  fit(); }
@@ -594,3 +584,6 @@ function restart(){ clearInterval(timer); timer=setInterval(step, 1000/FPS); }
 /* kick things off */
 fit();
 </script>
+
+<!-- Keep words.js last so it can read window.__eyefrogView & stickyWords -->
+<script src="words.js"></script>
