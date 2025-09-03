@@ -468,9 +468,12 @@ function fit(){
     const offX = Math.max((maxW - w*scale)/2, 0);
     const offY = Math.max((maxH - h*scale)/2, 0);
     const t = `translate(${offX}px, ${offY}px) scale(${scale})`;
-    baseEl.style.transform=t; ovEl.style.transform=t;
+    baseEl.style.transform=t;
+    ovEl.style.transform=t;
+    wordsEl.style.transform=t;            // ⬅️ add this
   });
 }
+
 addEventListener('resize', fit);
 
 /* ---------- state machine ---------- */
