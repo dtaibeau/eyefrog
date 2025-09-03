@@ -1,3 +1,4 @@
+
 /* Absolutely positioned overlay for DOM words (not affected by <pre> rules) */
 #words{
   position:absolute;
@@ -16,9 +17,10 @@
   line-height:1;
   white-space:nowrap;
 
-  /* NEW: typewriter font */
-  font-family: "American Typewriter", monospace;
+  /* Fira Code font */
+  font-family: 'Fira Code', monospace;
 }
+
 
 
 /* optional: slight per-word rotation vibe (comment out if you don't want) */
