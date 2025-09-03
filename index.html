@@ -586,4 +586,37 @@ fit();
 </script>
 
 <!-- Keep words.js last so it can read window.__eyefrogView & stickyWords -->
+
+<script>
+  // Bridge for words.js — exposes transforms + sticky words
+  (function(){
+    function getCellMetrics(){
+      const base = document.getElementById('base');
+      // Measure current ASCII grid size
+      const lines = (typeof ART === 'string' ? ART : '').split('\n');
+      const rows = lines.length || 1;
+      const cols = lines.reduce((m, s) => Math.max(m, s.length), 1);
+
+      // Unscaled measurements (transform scale applied separately)
+      const CELL_W = base.scrollWidth  / cols;
+      const CELL_H = base.scrollHeight / rows;
+
+      return { CELL_W, CELL_H };
+    }
+
+    window.__EYEFROG__ = {
+      getStickyWords: () => (window.stickyWords || []),
+      getTransforms: () => {
+        const { CELL_W, CELL_H } = getCellMetrics();
+        return {
+          scale: window.__eyefrogView?.scale ?? 1,
+          offX:  window.__eyefrogView?.offX  ?? 0,
+          offY:  window.__eyefrogView?.offY  ?? 0,
+          CELL_W, CELL_H
+        };
+      }
+    };
+  })();
+</script>
+
 <script src="words.js"></script>
