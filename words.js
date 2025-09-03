@@ -35,7 +35,7 @@ window.updateWordsOverlay = function updateWordsOverlay(){
     const el = ensureWordEl(id, w.text);
 
     // Map row/col -> viewport px
-    const leftPx = offX + (w.col * CELL_W * scale) + 300;  // shift right 50px
+    const leftPx = offX + (w.col * CELL_W * scale) + 200;  // shift right 50px
     const topPx  = offY + (w.row * CELL_H * scale);
 
 
