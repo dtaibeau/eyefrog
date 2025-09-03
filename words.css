@@ -11,15 +11,15 @@
 .word {
   position:absolute;
   font-size:36px;
-  font-weight:700;
+  font-weight:300; /* Light */
   text-transform:uppercase;
   color:#7CFF8B;
   line-height:1;
   white-space:nowrap;
 
-  /* Source Code Pro font */
-  font-family: 'Source Code Pro', monospace;
+  font-family: 'JetBrains Mono', monospace;
 }
+
 
 
 
