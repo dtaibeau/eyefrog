@@ -10,7 +10,7 @@
 /* Word styling: no glow, bigger, uppercase, bold */
 .word {
   position:absolute;
-  font-size:100px;
+  font-size:50px;
   font-weight:700; /* Light */
   text-transform:uppercase;
   color:#36a436;
