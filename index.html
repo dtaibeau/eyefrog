@@ -37,10 +37,9 @@
 <div class="stage">
   <pre id="base"></pre>
   <pre id="overlay"></pre>
-  <div id="words"></div>
+  <div id="words"></div>  <!-- inside stage -->
 </div>
-
-
+></div>
 
 <script>
 /* ===== 1) PASTE YOUR BIG ASCII HERE ===== */
@@ -334,7 +333,6 @@ const HOLD_FRAMES  = 8;     // pause at full extension
 const SEG = '='; const TIP = '»';
 
 const baseEl = document.getElementById('base');
-updateWordsOverlay();
 const ovEl   = document.getElementById('overlay');
 const wordsEl = document.getElementById('words');
 const lines0 = ART.split('\n');
@@ -458,32 +456,6 @@ function vecFromOriginToTip(tip){
   return { angle, dist };
 }
 
-// === DOM words (36px) ===
-const CELL_H = 16;   // row height in px (matches <pre> font-size)
-const CELL_W = 8;    // col width in px (try 9 if words look a bit left)
-
-function ensureWordEl(id, text){
-  let el = document.getElementById(id);
-  if (!el){
-    el = document.createElement('div');
-    el.id = id;
-    el.className = 'word';
-    el.textContent = text.toUpperCase();
-    wordsEl.appendChild(el);
-  }
-  return el;
-}
-
-function updateWordsOverlay(){
-  for (const w of stickyWords){
-    const id = `w-${w.row}-${w.col}-${w.text}`;
-    const el = ensureWordEl(id, w.text);
-    el.style.left = `${w.col * CELL_W}px`;
-    el.style.top  = `${w.row * CELL_H}px`;
-  }
-}
-
-
 /* ---------- viewport fit ---------- */
 function fit(){
   baseEl.style.transform = ovEl.style.transform = 'scale(1)';
@@ -495,12 +467,9 @@ function fit(){
     const offX = Math.max((maxW - w*scale)/2, 0);
     const offY = Math.max((maxH - h*scale)/2, 0);
     const t = `translate(${offX}px, ${offY}px) scale(${scale})`;
-    baseEl.style.transform=t;
-    ovEl.style.transform=t;
-    wordsEl.style.transform=t;            // ⬅️ add this
+    baseEl.style.transform=t; ovEl.style.transform=t;
   });
 }
-
 addEventListener('resize', fit);
 
 /* ---------- state machine ---------- */
@@ -538,8 +507,6 @@ function step(){
           // loop restart: clear all words and start over
           shotIdx = 0;
           stickyWords = [];
-          wordsEl.innerHTML = '';
-
           phase='close';
         } else {
           phase='extend';
@@ -560,6 +527,9 @@ function step(){
   // Overlay: tongue + sticky words + optional guide
   const { rows, tipR, tipC } = drawTongueGrid(L, o.row, o.col, angle, TONGUE_THICK);
   lastTip = { r: tipR, c: tipC };
+
+  // draw sticky words
+  for (const w of stickyWords) putText(rows, w.row, w.col, w.text);
 
   if (showGuide) addGuideToRows(rows);
 
