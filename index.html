@@ -16,9 +16,9 @@
   }
   #base   { color:#19f06d; text-shadow:0 0 6px #093; }
   #overlay{ color:#b7ffcf; text-shadow:0 0 10px #0f5; }
-  #words{ position:absolute; inset:0; transform-origin:top left; pointer-events:none; z-index:3; }
-pre{ z-index:1; }
-
+  #words{
+  position:absolute; inset:0; transform-origin: top left; pointer-events:none;
+}
 .word{
   position:absolute;
   font-size:36px;   /* this WILL work now */
@@ -539,6 +539,7 @@ function step(){
           shotIdx = 0;
           stickyWords = [];
           wordsEl.innerHTML = '';
+
           phase='close';
         } else {
           phase='extend';
